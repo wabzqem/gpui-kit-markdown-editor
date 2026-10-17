@@ -1,35 +1,106 @@
-# Block editor (spike)
+# gpui-kit-markdown-editor
 
-Block-based WYSIWYG Markdown editor for gpui-kit, behind the off-by-default
-`block-editor` feature (`gpui-kit/block-editor` forwards to
-`gpui-base/block-editor`; nothing is re-exported from `gpui-component`).
-Design: `docs/design/block-editor.md` (tracking: longbridge/gpui-kit#3049).
+A block-based WYSIWYG Markdown editor for [GPUI](https://www.gpui.rs), built on
+[gpui-kit](https://github.com/longbridge/gpui-kit)'s public editor host API
+(`gpui_kit::base::text::editor_host`). It edits real Markdown: paragraphs,
+headings, nested lists, task lists, block quotes, fenced code blocks, tables,
+links, and bold/italic/strike/inline-code marks. It has cross-block selection,
+IME, undo/redo, input rules (`# `, `- `, ```` ``` ````), copy/paste as Markdown,
+and culling of off-screen blocks.
 
-## Public API
+![The example app](docs/screenshot.png)
 
-| Item | Role |
-|---|---|
-| `BlockEditorState` | Entity: model + focus + IME + key bindings. `new`, `with_source`, `set_source`, `source`, `run(EditorCommand)`, `undo`/`redo`, `set_selection`, `set_readonly`, `set_editor_style`, `set_scroll_handle`. Emits `BlockEditorEvent::{Changed, SelectionChanged}`; no event for no-op commands. |
-| `BlockEditor` | View: `BlockEditor::new(&state)`. Renders through gpui-kit's text renderer. |
-| `BlockEditorModel` | Headless model (document, selection, history, commands). |
-| `EditorCommand` | `ToggleMark`, `ApplyMark`, `SetBlockKind`, `ToggleList`, `ToggleTask`, `Indent`, `Outdent`, `MoveBlocks`, `InsertBlock`, `SelectAll`, `DeleteSelection`. |
-| `BlockEditorStyle` | Caret / selection / composition colours (defaults come from the theme). |
+## Usage
 
-## Scrolling
+```toml
+[dependencies]
+gpui-kit = { git = "https://github.com/wabzqem/gpui-component", branch = "editor-host-api" }
+gpui-kit-markdown-editor = { git = "https://github.com/wabzqem/gpui-kit-markdown-editor" }
+```
 
-Put the editor in your own scroll container and pass that container's handle
-with `set_scroll_handle`; the caret is then scrolled into view after it moves.
-Without a handle, caret-into-view is a no-op. Either way, blocks outside the
-visible area are culled (light virtualization; full virtualization is
-Phase 5).
+The library is imported as `markdown_editor`.
 
-## Paste
+```rust
+use gpui_kit::*;
+use markdown_editor::{BlockEditor, BlockEditorEvent, BlockEditorState};
 
-- Cmd/Ctrl+V: single-line text is inserted inline. Multi-block Markdown is
-  converted to blocks in one undo step; a leading or trailing paragraph merges
-  into the text around the caret.
-- Cmd/Ctrl+Shift+V: plain text; each line becomes a paragraph.
+struct Notes {
+    editor: Entity<BlockEditorState>,
+    scroll: ScrollHandle,
+}
 
-## Story
+impl Notes {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let scroll = ScrollHandle::new();
+        let editor = cx.new(|cx| {
+            let mut state = BlockEditorState::new(window, cx).with_source("# Hello\n\nType **here**.");
+            // Optional: keep the caret in view inside your scroll container.
+            state.set_scroll_handle(scroll.clone());
+            state
+        });
+        cx.subscribe(&editor, |_, editor, event: &BlockEditorEvent, cx| {
+            if let BlockEditorEvent::Changed { .. } = event {
+                let _markdown = editor.read(cx).source();
+            }
+        })
+        .detach();
+        Self { editor, scroll }
+    }
+}
 
-`cargo run -p gpui-component-story --features block-editor -- BlockEditor`
+impl Render for Notes {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("notes")
+            .size_full()
+            .overflow_y_scroll()
+            .track_scroll(&self.scroll)
+            .child(BlockEditor::new(&self.editor))
+    }
+}
+
+fn main() {
+    gpui_kit::application().run(|cx| {
+        gpui_kit::init(cx);
+        markdown_editor::init(cx); // key bindings; call after gpui_kit::init
+        gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| Notes::new(window, cx))
+        })
+        .expect("failed to open window");
+    });
+}
+```
+
+A themed, content-sized wrapper lives in `markdown_editor::component`.
+
+Images load by default. Use `ImagePolicy::Placeholder` to show a placeholder
+instead and never resolve URLs, decode data or read paths.
+
+## Build and run
+
+Linux needs the same system libraries as gpui-kit
+(`script/install-linux.sh` in that repo). Then:
+
+```sh
+cargo run --example story
+cargo test            # window tests need a display; headless: xvfb-run -a cargo test
+```
+
+Everything builds from public dependencies only.
+
+## Design
+
+- [`docs/design.md`](docs/design.md): the editor design.
+- [`docs/host-contract.md`](docs/host-contract.md): what the editor needs from the gpui-kit host API.
+- [`docs/design-notes.md`](docs/design-notes.md): implementation notes from the spike.
+
+## History and credits
+
+The code began as the block editor spike in gpui-kit
+([#3049](https://github.com/longbridge/gpui-kit/pull/3049),
+[#3566](https://github.com/longbridge/gpui-kit/pull/3566)); its commit history
+is preserved in this repository.
+
+## Licence
+
+Apache-2.0, the same as gpui-kit. See [LICENSE-APACHE](LICENSE-APACHE).
