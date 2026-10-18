@@ -47,6 +47,10 @@ actions!(
         SelectDown,
         SelectHome,
         SelectEnd,
+        MoveDocStart,
+        MoveDocEnd,
+        SelectDocStart,
+        SelectDocEnd,
         SelectAll,
         MoveWordLeft,
         MoveWordRight,
@@ -80,6 +84,9 @@ pub(crate) fn init(cx: &mut App) {
     let w = "alt";
     #[cfg(not(target_os = "macos"))]
     let w = "ctrl";
+    // Document start/end: Ctrl+Home/End (Cmd+Home/End also work on macOS,
+    // next to Cmd+Up/Down).
+    let doc = m;
     cx.bind_keys(vec![
         KeyBinding::new("backspace", Backspace, ctx),
         KeyBinding::new("delete", Delete, ctx),
@@ -100,6 +107,18 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new("shift-down", SelectDown, ctx),
         KeyBinding::new("shift-home", SelectHome, ctx),
         KeyBinding::new("shift-end", SelectEnd, ctx),
+        KeyBinding::new(&format!("{doc}-home"), MoveDocStart, ctx),
+        KeyBinding::new(&format!("{doc}-end"), MoveDocEnd, ctx),
+        KeyBinding::new(&format!("{doc}-shift-home"), SelectDocStart, ctx),
+        KeyBinding::new(&format!("{doc}-shift-end"), SelectDocEnd, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-up", MoveDocStart, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-down", MoveDocEnd, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-shift-up", SelectDocStart, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-shift-down", SelectDocEnd, ctx),
         KeyBinding::new("tab", Indent, ctx),
         KeyBinding::new("shift-tab", Outdent, ctx),
         KeyBinding::new(&format!("{m}-a"), SelectAll, ctx),
@@ -1567,6 +1586,42 @@ impl BlockEditorState {
     }
     pub(crate) fn on_select_end(&mut self, _: &SelectEnd, _: &mut Window, cx: &mut Context<Self>) {
         self.line_edge(true, true, cx);
+    }
+    pub(crate) fn on_move_doc_start(
+        &mut self,
+        _: &MoveDocStart,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.goal_x = None;
+        self.move_to(self.model.doc.first_caret(), false, cx);
+    }
+    pub(crate) fn on_move_doc_end(
+        &mut self,
+        _: &MoveDocEnd,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.goal_x = None;
+        self.move_to(self.model.doc.last_caret(), false, cx);
+    }
+    pub(crate) fn on_select_doc_start(
+        &mut self,
+        _: &SelectDocStart,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.goal_x = None;
+        self.move_to(self.model.doc.first_caret(), true, cx);
+    }
+    pub(crate) fn on_select_doc_end(
+        &mut self,
+        _: &SelectDocEnd,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.goal_x = None;
+        self.move_to(self.model.doc.last_caret(), true, cx);
     }
     pub(crate) fn on_select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
         self.end_composition();

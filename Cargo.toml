@@ -13,6 +13,15 @@ name = "markdown_editor"
 path = "src/lib.rs"
 doctest = false
 
+[features]
+default = ["syntect"]
+# Syntax highlighting for fenced code blocks (the editor renders through
+# gpui-kit's text renderer, which highlights only when one of these is on).
+# `syntect` is the light option (about 200 languages); `tree-sitter` builds a
+# syntax tree and takes precedence when both are enabled.
+syntect = ["gpui-kit/syntect"]
+tree-sitter = ["gpui-kit/tree-sitter", "gpui-kit/tree-sitter-languages"]
+
 [dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.9" }
 gpui-kit = { git = "https://github.com/longbridge/gpui-kit", rev = "45c70d4d7d804f7eb61915f9a303abb2e87da7c3" }

@@ -360,13 +360,15 @@ impl Render for BlockEditorStory {
 }
 
 fn main() {
-    gpui_kit::application().run(|cx| {
-        gpui_kit::init(cx);
-        markdown_editor::init(cx);
-        gpui_kit::open_window(gpui_kit::WindowOptions::default(), cx, |window, cx| {
-            cx.new(|cx| BlockEditorStory::new(window, cx))
-        })
-        .expect("failed to open window");
-        cx.activate(true);
-    });
+    gpui_kit::application()
+        .with_assets(gpui_kit::assets::AllAssets)
+        .run(|cx| {
+            gpui_kit::init(cx);
+            markdown_editor::init(cx);
+            gpui_kit::open_window(gpui_kit::WindowOptions::default(), cx, |window, cx| {
+                cx.new(|cx| BlockEditorStory::new(window, cx))
+            })
+            .expect("failed to open window");
+            cx.activate(true);
+        });
 }

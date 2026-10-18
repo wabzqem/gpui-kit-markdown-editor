@@ -448,6 +448,36 @@ fn no_change_event_on_noop_command(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn ctrl_home_and_end_jump_to_the_document_edges(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "one\n\ntwo\n\nthree");
+    caret_at(&editor, cx, 1, 1);
+    keys(cx, "M-end");
+    let caret = |editor: &Entity<BlockEditorState>, cx: &mut VisualTestContext| {
+        editor.read_with(cx, |e, _| {
+            let c = e.model().caret().unwrap();
+            let ix = e
+                .model()
+                .document()
+                .leaves()
+                .position(|l| l.id() == c.block);
+            (ix, c.offset)
+        })
+    };
+    assert_eq!(caret(&editor, cx), (Some(2), 5));
+    keys(cx, "M-home");
+    assert_eq!(caret(&editor, cx), (Some(0), 0));
+    keys(cx, "M-shift-end");
+    editor.read_with(cx, |e, _| {
+        assert!(
+            matches!(e.selection(), BlockSelection::Text { anchor, head } if anchor != head),
+            "extends to the end"
+        );
+    });
+    type_text(cx, "X");
+    assert_eq!(source(&editor, cx), "X");
+}
+
+#[gpui::test]
 fn arrows_collapse_whole_block_selection(cx: &mut TestAppContext) {
     let (editor, cx) = open(cx, "one\n\ntwo\n\nthree");
     editor.update(cx, |e, cx| {
