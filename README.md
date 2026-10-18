@@ -78,6 +78,47 @@ A themed, content-sized wrapper lives in `markdown_editor::component`.
 Images load by default. Use `ImagePolicy::Placeholder` to show a placeholder
 instead and never resolve URLs, decode data or read paths.
 
+## Features and keys
+
+Cargo features forward to gpui-kit's syntax highlighting for fenced code
+blocks; gpui-kit only highlights when one is on:
+
+| Feature | Effect |
+| --- | --- |
+| `syntect` (default) | About 200 languages, no syntax tree |
+| `tree-sitter` | Tree-sitter highlighting (takes precedence if both are on) |
+
+Disable default features to build without highlighting.
+
+Keys (Cmd instead of Ctrl on macOS): Enter, Backspace/Delete, arrows,
+Home/End, Ctrl+Home/End (document start/end), Shift to select, Ctrl+A,
+Ctrl+B/I/E (bold, italic, code), Ctrl+K (edit link), Ctrl+Z / Ctrl+Shift+Z
+(or Ctrl+Y), Ctrl+C/X/V, Ctrl+Shift+V (plain paste), Tab/Shift+Tab (indent
+list items, move between table cells), Shift+Enter (soft break, also in a
+table cell). Cmd/Ctrl-click a link emits `LinkClicked`; the editor never
+opens a browser.
+
+## Known limitations
+
+- Copying a selection that spans several blocks keeps inline marks but not the
+  block structure (headings, list markers, quotes become plain paragraphs on
+  paste). Copying a table's cells and copying within one block round-trip.
+- Empty paragraphs have no Markdown form and disappear on save; list
+  tightness can change once on the first save, after which output is stable.
+- A `BlockEditor` is as tall as its text. Give it `min_h_full()` (and padding
+  on the editor, not an outer wrapper) if the whole area should be clickable.
+- Accessibility exposes the document as one multi-line text input plus a node
+  per laid-out top-level block; nested items, table cells and inline roles are
+  not exposed, and screen-reader behaviour is unverified.
+- Culling covers top-level blocks and long top-level lists; nested long lists
+  and long tables are laid out in full.
+- No `source_offset` mapping, no pluggable input-rule registry, and events
+  carry no change summaries yet.
+- Developed and tested on Linux (under a virtual display). macOS and Windows
+  key bindings and IME are implemented but unverified here.
+- Bold text only looks bold if the theme font has a bold face (the same as
+  gpui-kit's own `TextView`).
+
 ## Build and run
 
 Linux needs the same system libraries as gpui-kit

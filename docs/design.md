@@ -6,6 +6,19 @@
 **Reviewers:** @huacnlee and the gpui-kit maintainers. Also cc @EnoroF.
 **Checked against:** `main` @ `369f7a8f` and PR head @ `47141037` (merge-base `3f1dda6e`). Appendix A lists what was verified and how.
 
+> **Where this lives now.** This document was written for an in-tree gpui-kit
+> editor behind an off-by-default `block-editor` feature. The editor is now the
+> standalone crate `gpui-kit-markdown-editor`. Read the history below with these
+> translations: `crates/base/src/text/block_editor/` is `src/`; there is no
+> `block-editor` feature (the only features forward syntax highlighting to
+> gpui-kit); the render seam the editor needs is gpui-kit's public
+> `gpui_kit::base::text::editor_host` ([host-contract.md](host-contract.md));
+> the spike branches and PRs (#3049, #3566) are history. Still open from this
+> design: `source_offset` / `position_at_source_offset`, a pluggable input-rule
+> registry beyond `InputRule` toggles, change/selection summaries in events,
+> full-document accessibility text ranges, and culling of nested lists and long
+> tables. See "Known limitations" in the README.
+
 ---
 
 ## 0. Sources
