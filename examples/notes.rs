@@ -34,11 +34,7 @@ impl Render for Notes {
             .overflow_y_scroll()
             .track_scroll(&self.scroll)
             // `min_h_full` makes the whole window clickable, not only the text.
-            .child(
-                BlockEditor::new(&self.editor)
-                    .min_h_full()
-                    .p_4(),
-            )
+            .child(BlockEditor::new(&self.editor).min_h_full().p_4())
     }
 }
 

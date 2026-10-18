@@ -33,7 +33,8 @@ impl Notes {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let scroll = ScrollHandle::new();
         let editor = cx.new(|cx| {
-            let mut state = BlockEditorState::new(window, cx).with_source("# Hello\n\nType **here**.");
+            let mut state =
+                BlockEditorState::new(window, cx).with_source("# Hello\n\nType **here**.");
             // Optional: keep the caret in view inside your scroll container.
             state.set_scroll_handle(scroll.clone());
             state
