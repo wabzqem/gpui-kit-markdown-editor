@@ -2908,3 +2908,33 @@ fn caret_is_the_shared_one_pixel_line(cx: &mut TestAppContext) {
         assert!(device(s.size.width) >= 1.0 - 1e-3, "{scale}");
     }
 }
+
+struct Tall(Entity<BlockEditorState>);
+
+impl Render for Tall {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("scroll")
+            .w(px(600.))
+            .h(px(800.))
+            .overflow_y_scroll()
+            .child(BlockEditor::new(&self.0).min_h(px(500.)).p_4())
+    }
+}
+
+#[gpui::test]
+fn clicking_below_the_text_focuses_and_puts_the_caret_at_the_end(cx: &mut TestAppContext) {
+    cx.update(crate::init_for_tests);
+    let (root, cx) = cx.add_window_view(|window, cx| {
+        Tall(cx.new(|cx| BlockEditorState::new(window, cx).with_source("# Hello\n\nType here.")))
+    });
+    let editor = root.read_with(cx, |root, _| root.0.clone());
+    draw(cx);
+    // Well below the last line, inside the editor's own minimum height.
+    let at = gpui::point(px(120.), px(400.));
+    cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
+    draw(cx);
+    type_text(cx, "!");
+    assert_eq!(source(&editor, cx), "# Hello\n\nType here.!");
+}

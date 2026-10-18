@@ -331,15 +331,14 @@ impl Render for BlockEditorStory {
                 section("Editor").child(
                     div()
                         .id("block-editor-scroll")
-                        .flex_1()
                         .w_full()
-                        .max_h(rems(28.))
+                        .h(rems(28.))
                         .overflow_y_scroll()
                         // Scroll containment: wheel events over this pane
                         // must not also scroll the story/gallery.
                         .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
                         .track_scroll(&self.scroll)
-                        .child(BlockEditor::new(&self.editor)),
+                        .child(BlockEditor::new(&self.editor).min_h_full().p_2()),
                 ),
             )
             .child(
