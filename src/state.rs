@@ -156,6 +156,40 @@ pub(crate) fn init(cx: &mut App) {
 /// the conservative import.
 pub(crate) const COPY_TAG: &str = "gpui-kit/block-editor/inline-markdown/v1";
 
+/// Clipboard metadata for a copy of several blocks, written as Markdown
+/// (headings, lists, quotes, code, tables, tasks and marks). Paste parses it
+/// back into blocks.
+pub(crate) const BLOCKS_COPY_TAG: &str = "gpui-kit/block-editor/blocks-markdown/v1";
+
+/// What the clipboard item says about where it came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CopyKind {
+    /// Text from elsewhere: the conservative import.
+    External,
+    /// The editor's own copy inside one block: inline Markdown (D17).
+    Inline,
+    /// The editor's own copy of whole or partial blocks: block Markdown.
+    Blocks,
+}
+
+impl CopyKind {
+    fn of(item: &ClipboardItem) -> Self {
+        match item.metadata() {
+            Some(m) if m == COPY_TAG => Self::Inline,
+            Some(m) if m == BLOCKS_COPY_TAG => Self::Blocks,
+            _ => Self::External,
+        }
+    }
+
+    fn tag(self) -> Option<&'static str> {
+        match self {
+            Self::External => None,
+            Self::Inline => Some(COPY_TAG),
+            Self::Blocks => Some(BLOCKS_COPY_TAG),
+        }
+    }
+}
+
 /// Events emitted by [`BlockEditorState`].
 #[non_exhaustive]
 #[derive(Clone, Debug)]
@@ -222,8 +256,8 @@ type InputRuleFilter = Arc<dyn Fn(super::InputRule, &str) -> bool + Send + Sync>
 pub struct PasteRequest {
     range: super::CapturedRange,
     plain: bool,
-    /// The item was the editor's own tagged inline-Markdown copy (D17).
-    markdown: bool,
+    /// Where the item came from (the editor's own tagged copies, D17).
+    copy: CopyKind,
     sequence: u64,
 }
 
@@ -1349,17 +1383,26 @@ impl BlockEditorState {
     /// The selection as clipboard text, and whether it is the editor's own
     /// inline Markdown (D17): then the copy is tagged with
     /// [`COPY_TAG`] so paste parses it back.
-    fn selected_text(&self) -> (String, bool) {
+    fn selected_text(&self) -> (String, CopyKind) {
         if let Some(table) = self.model.cells_markdown() {
-            return (table, false);
+            return (table, CopyKind::Blocks);
         }
         if let Some((parent, range)) = self.model.selected_blocks() {
             let ids = &self.model.doc.children(parent)[range];
-            return (super::serialize::join_blocks(&self.model.doc, ids), false);
+            return (
+                super::serialize::join_blocks(&self.model.doc, ids),
+                CopyKind::Blocks,
+            );
         }
         let Ok(range) = self.model.doc.resolve_selection(self.model.selection()) else {
-            return (String::new(), false);
+            return (String::new(), CopyKind::External);
         };
+        // Several blocks: Markdown for the whole selection (D18).
+        if range.start.block != range.end.block
+            && let Some(markdown) = super::slice::selection_markdown(&self.model.doc, range)
+        {
+            return (markdown, CopyKind::Blocks);
+        }
         let mut inline_only = true;
         let text = self
             .model
@@ -1379,7 +1422,14 @@ impl BlockEditorState {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        (text, inline_only)
+        (
+            text,
+            if inline_only {
+                CopyKind::Inline
+            } else {
+                CopyKind::External
+            },
+        )
     }
 
     // ---- action handlers --------------------------------------------------
@@ -1667,14 +1717,13 @@ impl BlockEditorState {
         let _ = self.run(EditorCommand::Outdent, cx);
     }
     pub(crate) fn on_copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        let (text, own) = self.selected_text();
+        let (text, kind) = self.selected_text();
         if text.is_empty() {
             return;
         }
-        cx.write_to_clipboard(if own {
-            ClipboardItem::new_string_with_metadata(text, COPY_TAG.to_string())
-        } else {
-            ClipboardItem::new_string(text)
+        cx.write_to_clipboard(match kind.tag() {
+            Some(tag) => ClipboardItem::new_string_with_metadata(text, tag.to_string()),
+            None => ClipboardItem::new_string(text),
         });
     }
     pub(crate) fn on_cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
@@ -1731,13 +1780,12 @@ impl BlockEditorState {
             let request = PasteRequest {
                 range: self.model.capture(self.model.selection.clone()),
                 plain,
-                markdown: item.metadata().is_some_and(|m| m == COPY_TAG),
+                copy: CopyKind::of(&item),
                 sequence: self.paste_sequence,
             };
             cx.emit(BlockEditorEvent::PasteRequested { request, item });
         } else if let Some(text) = item.text() {
-            let markdown = item.metadata().is_some_and(|m| m == COPY_TAG);
-            self.paste_text(&text, plain, markdown, cx);
+            self.paste_text(&text, plain, CopyKind::of(&item), cx);
         }
     }
 
@@ -1760,15 +1808,18 @@ impl BlockEditorState {
         }
         self.pending_paste = None;
         if let Some(text) = text {
-            self.paste_text(text, request.plain, request.markdown, cx);
+            self.paste_text(text, request.plain, request.copy, cx);
         }
         true
     }
-    fn paste_text(&mut self, text: &str, plain: bool, markdown: bool, cx: &mut Context<Self>) {
+    fn paste_text(&mut self, text: &str, plain: bool, copy: CopyKind, cx: &mut Context<Self>) {
         self.edit(
             EditOrigin::Paste,
             |model| {
-                if !plain && markdown && model.paste_inline_markdown(text)? {
+                if !plain && copy == CopyKind::Blocks && model.paste_blocks_markdown(text)? {
+                    return Ok(());
+                }
+                if !plain && copy != CopyKind::External && model.paste_inline_markdown(text)? {
                     return Ok(());
                 }
                 if !plain && model.paste_blocks(text)? {

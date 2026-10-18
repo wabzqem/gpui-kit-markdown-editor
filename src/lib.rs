@@ -59,6 +59,7 @@ mod position;
 mod projection;
 mod selection;
 mod serialize;
+mod slice;
 mod state;
 mod step;
 mod style;

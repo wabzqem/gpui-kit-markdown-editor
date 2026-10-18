@@ -2762,13 +2762,210 @@ fn d17_partial_selections_have_balanced_markers(cx: &mut TestAppContext) {
     assert_eq!(clip, " **bold**");
 }
 
+// ---- D18: a multi-block copy is Markdown and pastes back as blocks --------
+
+const MIX: &str = "# Title\n\nA **bold** para with `code`.\n\n- one\n- [ ] task\n  - nested\n\n1. first\n2. second\n\n> quoted *text*\n\n```rust\nfn main() {}\n```\n\n| a | b |\n| --- | --- |\n| 1 | **2** |";
+
+fn leaf_count(editor: &Entity<BlockEditorState>, cx: &VisualTestContext) -> usize {
+    editor.read_with(cx, |e, _| e.model().document().leaves().count())
+}
+
+fn copy_tag(cx: &mut VisualTestContext) -> Option<String> {
+    cx.read_from_clipboard().and_then(|c| c.metadata().cloned())
+}
+
+/// The document ends in a paragraph "T"; make it an empty paragraph with the
+/// caret in it.
+fn empty_last_paragraph(editor: &Entity<BlockEditorState>, cx: &mut VisualTestContext) {
+    let last = leaf_count(editor, cx) - 1;
+    caret_at(editor, cx, last, 1);
+    keys(cx, "backspace");
+}
+
+/// Copy `from..to` of `doc` and paste it into an empty paragraph after it.
+fn copy_blocks_paste(
+    cx: &mut TestAppContext,
+    doc: &str,
+    from: (usize, usize),
+    to: (usize, usize),
+) -> (String, String) {
+    let (editor, cx) = open(cx, &format!("{doc}\n\nT"));
+    select_in(&editor, cx, from, to);
+    keys(cx, "M-c");
+    let clip = clipboard_text(cx);
+    empty_last_paragraph(&editor, cx);
+    keys(cx, "M-v");
+    (clip, source(&editor, cx))
+}
+
 #[gpui::test]
-fn d17_multi_block_selection_keeps_marks_per_block(cx: &mut TestAppContext) {
+fn d18_multi_block_selection_copies_markdown_and_merges_into_a_paragraph(cx: &mut TestAppContext) {
     let (clip, src) = copy_paste(cx, "**a** one\n\n# `h` two\n\n*b* three", (0, 0), (2, 7));
-    assert_eq!(clip, "**a** one\n`h` two\n*b* three");
+    assert_eq!(clip, "**a** one\n\n# `h` two\n\n*b* three");
+    // The first block is a plain paragraph: it merges into "T"; the heading
+    // is inserted as a block; the last paragraph merges into the right half.
     assert!(
-        src.ends_with("\n\nT**a** one\n\n`h` two\n\n*b* three"),
+        src.ends_with("\n\nT**a** one\n\n# `h` two\n\n*b* three"),
         "{src:?}"
+    );
+}
+
+#[gpui::test]
+fn d18_the_copy_is_tagged_as_our_own_block_markdown(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "one\n\ntwo");
+    select_in(&editor, cx, (0, 0), (1, 3));
+    keys(cx, "M-c");
+    assert_eq!(
+        copy_tag(cx).as_deref(),
+        Some("gpui-kit/block-editor/blocks-markdown/v1")
+    );
+    // Inside one block it is still the inline copy.
+    select_in(&editor, cx, (0, 0), (0, 2));
+    keys(cx, "M-c");
+    assert_eq!(
+        copy_tag(cx).as_deref(),
+        Some("gpui-kit/block-editor/inline-markdown/v1")
+    );
+}
+
+#[gpui::test]
+fn d18_select_all_copy_of_every_block_kind_round_trips(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, &format!("{MIX}\n\nT"));
+    let leaves = leaf_count(&editor, cx) - 1;
+    let canonical = MIX.to_string();
+    select_in(&editor, cx, (0, 0), (leaves - 1, usize::MAX));
+    keys(cx, "M-c");
+    assert_eq!(clipboard_text(cx), canonical);
+    empty_last_paragraph(&editor, cx);
+    let before = source(&editor, cx);
+    keys(cx, "M-v");
+    let pasted = source(&editor, cx);
+    assert_eq!(pasted, format!("{canonical}\n\n{canonical}"));
+    assert_eq!(leaf_count(&editor, cx), leaves * 2);
+    // One undo step removes the whole paste.
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), before);
+    keys(cx, "M-shift-z");
+    assert_eq!(source(&editor, cx), pasted);
+}
+
+#[gpui::test]
+fn d18_partial_first_and_last_blocks_are_cut_with_balanced_marks(cx: &mut TestAppContext) {
+    let doc = "# Title\n\nfirst para\n\n- one\n- two\n\n> quoted text";
+    let (clip, src) = copy_blocks_paste(cx, doc, (0, 2), (4, 6));
+    assert_eq!(clip, "# tle\n\nfirst para\n\n- one\n- two\n\n> quoted");
+    assert_eq!(
+        src,
+        format!("{doc}\n\n# tle\n\nfirst para\n\n- one\n- two\n\n> quoted")
+    );
+    // Marks are closed at both cut edges.
+    let (clip, _) = copy_blocks_paste(cx, "a **bold one** b\n\nx *it alic* y", (0, 4), (1, 7));
+    assert_eq!(clip, "**ld one** b\n\nx *it al*");
+}
+
+#[gpui::test]
+fn d18_a_cut_that_ends_exactly_at_a_block_edge_drops_the_empty_part(cx: &mut TestAppContext) {
+    // From the end of the first paragraph into the second.
+    let (clip, _) = copy_blocks_paste(cx, "one\n\ntwo three", (0, 3), (1, 3));
+    assert_eq!(clip, "two");
+    // To the start of the second paragraph.
+    let (clip, _) = copy_blocks_paste(cx, "one two\n\nthree", (0, 4), (1, 0));
+    assert_eq!(clip, "two");
+}
+
+#[gpui::test]
+fn d18_nested_lists_and_selections_starting_mid_list(cx: &mut TestAppContext) {
+    let doc = "- a\n  - b\n  - c\n- d";
+    // Leaves: a, b, c, d. The whole list keeps its nesting.
+    let (clip, src) = copy_blocks_paste(cx, doc, (0, 0), (3, 1));
+    assert_eq!(clip, doc);
+    // The empty paragraph the paste replaced sat between two lists, which
+    // then join into one.
+    assert_eq!(src, format!("{doc}\n{doc}"));
+    // Starting inside the nested list: "a" was not selected, so the nested
+    // items are lifted out rather than copied as an empty item.
+    let (clip, _) = copy_blocks_paste(cx, doc, (1, 0), (3, 1));
+    assert_eq!(clip, "- b\n- c\n- d");
+    // Starting mid-item keeps the item and cuts its text.
+    let (clip, _) = copy_blocks_paste(cx, doc, (1, 0), (2, 0));
+    assert_eq!(clip, "- b");
+}
+
+#[gpui::test]
+fn d18_task_items_keep_their_state(cx: &mut TestAppContext) {
+    let doc = "- [ ] one\n- [x] two\n\nafter";
+    let (clip, src) = copy_blocks_paste(cx, doc, (0, 0), (2, 5));
+    assert_eq!(clip, doc);
+    assert_eq!(src, format!("{doc}\n\n{doc}"));
+    // Cut mid-item: the checkbox stays with the item.
+    let (clip, _) = copy_blocks_paste(cx, doc, (1, 1), (2, 2));
+    assert_eq!(clip, "- [x] wo\n\naf");
+}
+
+#[gpui::test]
+fn d18_a_table_the_selection_touches_is_copied_whole(cx: &mut TestAppContext) {
+    let doc = "intro\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\noutro";
+    // Leaves: intro, a, b, 1, 2, outro. Ends inside the first cell.
+    let (clip, _) = copy_blocks_paste(cx, doc, (0, 2), (1, 1));
+    assert_eq!(clip, "tro\n\n| a | b |\n| --- | --- |\n| 1 | 2 |");
+    // Starts in a cell of the table.
+    let (clip, _) = copy_blocks_paste(cx, doc, (4, 0), (5, 3));
+    assert_eq!(clip, "| a | b |\n| --- | --- |\n| 1 | 2 |\n\nout");
+}
+
+#[gpui::test]
+fn d18_pasting_blocks_mid_paragraph_splits_it(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "x\n\n- l\n\nz\n\nhello world");
+    select_in(&editor, cx, (0, 0), (2, 1));
+    keys(cx, "M-c");
+    let last = leaf_count(&editor, cx) - 1;
+    caret_at(&editor, cx, last, 5);
+    keys(cx, "M-v");
+    assert_eq!(
+        source(&editor, cx),
+        "x\n\n- l\n\nz\n\nhellox\n\n- l\n\nz world"
+    );
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "x\n\n- l\n\nz\n\nhello world");
+}
+
+#[gpui::test]
+fn d18_paste_into_an_empty_paragraph_inserts_blocks_without_a_stray_one(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "# H\n\n- item\n\n");
+    select_in(&editor, cx, (0, 0), (1, 4));
+    keys(cx, "M-c");
+    keys(cx, "M-end");
+    keys(cx, "M-v");
+    assert_eq!(
+        source(&editor, cx).trim_end(),
+        "# H\n\n- item\n\n# H\n\n- item"
+    );
+}
+
+#[gpui::test]
+fn d18_paste_plain_stays_literal_and_external_text_is_conservative(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "# Title\n\n- one\n\nT");
+    select_in(&editor, cx, (0, 0), (1, 3));
+    keys(cx, "M-c");
+    assert_eq!(clipboard_text(cx), "# Title\n\n- one");
+    let last = leaf_count(&editor, cx) - 1;
+    caret_at(&editor, cx, last, 1);
+    keys(cx, "M-shift-v");
+    // Raw characters: no heading, no list.
+    let src = source(&editor, cx);
+    assert!(src.contains("T# Title"), "{src:?}");
+    assert!(src.ends_with("\\- one"), "{src:?}");
+    assert!(!src[8..].contains("\n# Title"), "{src:?}");
+    // The same text without our tag is the conservative import: multi-block
+    // Markdown becomes blocks, a single line stays text.
+    cx.update(|_, cx| cx.write_to_clipboard(gpui::ClipboardItem::new_string("# x".into())));
+    caret_at(&editor, cx, 0, 0);
+    keys(cx, "M-v");
+    // (Inside the heading "Title" the single line is inserted literally.)
+    assert!(
+        source(&editor, cx).starts_with("# \\# xTitle"),
+        "{:?}",
+        source(&editor, cx)
     );
 }
 
@@ -2937,4 +3134,16 @@ fn clicking_below_the_text_focuses_and_puts_the_caret_at_the_end(cx: &mut TestAp
     draw(cx);
     type_text(cx, "!");
     assert_eq!(source(&editor, cx), "# Hello\n\nType here.!");
+}
+
+#[gpui::test]
+fn d18_paste_ending_in_a_paragraph_into_an_empty_paragraph_leaves_no_stray(
+    cx: &mut TestAppContext,
+) {
+    let (editor, cx) = open(cx, "# H\n\ntail\n\nT");
+    select_in(&editor, cx, (0, 0), (1, 4));
+    keys(cx, "M-c");
+    empty_last_paragraph(&editor, cx);
+    keys(cx, "M-v");
+    assert_eq!(source(&editor, cx), "# H\n\ntail\n\n# H\n\ntail");
 }

@@ -100,9 +100,11 @@ opens a browser.
 
 ## Known limitations
 
-- Copying a selection that spans several blocks keeps inline marks but not the
-  block structure (headings, list markers, quotes become plain paragraphs on
-  paste). Copying a table's cells and copying within one block round-trip.
+- Copying across blocks writes Markdown and pastes back as blocks (headings,
+  lists, quotes, code, tables, tasks, marks). A table the selection touches is
+  copied whole, and a selection starting inside a nested list lifts the nested
+  items out instead of copying an empty parent item. Pasting a list directly
+  after another list joins them.
 - Empty paragraphs have no Markdown form and disappear on save; list
   tightness can change once on the first save, after which output is stable.
 - A `BlockEditor` is as tall as its text. Give it `min_h_full()` (and padding

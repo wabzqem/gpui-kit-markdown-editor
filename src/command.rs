@@ -970,10 +970,21 @@ impl BlockEditorModel {
     /// single-line text or when the caret is not in an editable text block;
     /// the caller then inserts plain text).
     pub fn paste_blocks(&mut self, text: &str) -> Result<bool, CommandError> {
+        self.paste_block_markdown(text, false)
+    }
+
+    /// Paste the editor's own block copy: always parsed as blocks, even a
+    /// single line (`# Title`).
+    pub(crate) fn paste_blocks_markdown(&mut self, text: &str) -> Result<bool, CommandError> {
+        self.paste_block_markdown(text, true)
+    }
+
+    fn paste_block_markdown(&mut self, text: &str, own: bool) -> Result<bool, CommandError> {
         // Single-line text is plain unless it holds an inline atom's
         // Markdown (a copied image), which pastes back as the atom, or an
         // inline code span (`x`), which pastes back as code.
-        if !text.trim_end_matches('\n').contains('\n')
+        if !own
+            && !text.trim_end_matches('\n').contains('\n')
             && !text.contains("![")
             && !text.contains('`')
         {
