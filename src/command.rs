@@ -1209,15 +1209,18 @@ impl BlockEditorModel {
             EditorCommand::ApplyMark(change) => self.apply_mark(change),
             EditorCommand::SetBlockKind(kind) => self.set_block_kind(kind),
             EditorCommand::ToggleList { ordered } => self.toggle_list(ordered),
-            EditorCommand::ToggleTask => self.with_item("toggle_task", |tx, item| {
-                if let Some(BlockKindData::ListItem { checked, spread }) =
-                    tx.doc.kind(item).cloned()
-                {
-                    let checked = if checked.is_some() { None } else { Some(false) };
-                    tx.set_kind(item, BlockKindData::ListItem { checked, spread })?;
+            EditorCommand::ToggleTask => {
+                // On a paragraph the Task button makes it a task item (a
+                // bullet list item with an empty checkbox), like Bullets.
+                let in_item = {
+                    let resolved = self.caret_resolved()?;
+                    resolved.nearest(&self.doc, is_list_item).is_some()
+                };
+                if !in_item && !self.toggle_list(false)? {
+                    return Ok(false);
                 }
-                Ok(())
-            }),
+                self.toggle_task_item()
+            }
             EditorCommand::SetTaskChecked(on) => self.with_item("set_task_checked", |tx, item| {
                 if let Some(BlockKindData::ListItem { spread, .. }) = tx.doc.kind(item).cloned() {
                     tx.set_kind(
@@ -1350,6 +1353,16 @@ impl BlockEditorModel {
         self.transact(EditOrigin::Command(name), |tx| {
             f(tx, item)?;
             Ok(None)
+        })
+    }
+
+    fn toggle_task_item(&mut self) -> Result<bool, CommandError> {
+        self.with_item("toggle_task", |tx, item| {
+            if let Some(BlockKindData::ListItem { checked, spread }) = tx.doc.kind(item).cloned() {
+                let checked = if checked.is_some() { None } else { Some(false) };
+                tx.set_kind(item, BlockKindData::ListItem { checked, spread })?;
+            }
+            Ok(())
         })
     }
 

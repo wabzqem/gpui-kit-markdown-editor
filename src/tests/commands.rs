@@ -133,6 +133,16 @@ fn toggle_task() {
 }
 
 #[test]
+fn toggle_task_on_a_paragraph_makes_a_task_item() {
+    let mut m = model("a");
+    caret_in(&mut m, 0, 1);
+    m.run(EditorCommand::ToggleTask).unwrap();
+    assert_eq!(m.source(), "- [ ] a");
+    m.run(EditorCommand::ToggleTask).unwrap();
+    assert_eq!(m.source(), "- a");
+}
+
+#[test]
 fn mark_state_and_active_marks() {
     let mut m = model("a **b** c");
     select(&mut m, 0, 0..3);
