@@ -79,7 +79,9 @@ pub(crate) fn block_role(node: &BlockNode) -> Option<(Role, Option<usize>)> {
 impl RenderOnce for BlockEditor {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = gpui_kit::base::Theme::global(cx);
-        let render_cx = RenderContext::from_app(cx);
+        // Links are followed by the editor itself (Cmd/Ctrl-click); the shared
+        // renderer must never open a URL on its own.
+        let render_cx = RenderContext::from_app(cx).on_link_click(|_, _, _, _| {});
         let text_style = render_cx.style().clone();
         let mut style = self.state.read(cx).style.resolved(&theme.tokens);
         if style.selection_is_default() {

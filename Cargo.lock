@@ -2136,7 +2136,7 @@ dependencies = [
 [[package]]
 name = "gpui-base"
 version = "0.7.3"
-source = "git+https://github.com/wabzqem/gpui-component?branch=editor-host-api#1d24987426f011650164b160b6381c247818ed27"
+source = "git+https://github.com/longbridge/gpui-kit?rev=45c70d4d7d804f7eb61915f9a303abb2e87da7c3#45c70d4d7d804f7eb61915f9a303abb2e87da7c3"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -2177,7 +2177,7 @@ dependencies = [
 [[package]]
 name = "gpui-component"
 version = "0.7.3"
-source = "git+https://github.com/wabzqem/gpui-component?branch=editor-host-api#1d24987426f011650164b160b6381c247818ed27"
+source = "git+https://github.com/longbridge/gpui-kit?rev=45c70d4d7d804f7eb61915f9a303abb2e87da7c3#45c70d4d7d804f7eb61915f9a303abb2e87da7c3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2224,7 +2224,7 @@ dependencies = [
 [[package]]
 name = "gpui-component-macros"
 version = "0.7.3"
-source = "git+https://github.com/wabzqem/gpui-component?branch=editor-host-api#1d24987426f011650164b160b6381c247818ed27"
+source = "git+https://github.com/longbridge/gpui-kit?rev=45c70d4d7d804f7eb61915f9a303abb2e87da7c3#45c70d4d7d804f7eb61915f9a303abb2e87da7c3"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2547,7 +2547,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit"
 version = "0.7.3"
-source = "git+https://github.com/wabzqem/gpui-component?branch=editor-host-api#1d24987426f011650164b160b6381c247818ed27"
+source = "git+https://github.com/longbridge/gpui-kit?rev=45c70d4d7d804f7eb61915f9a303abb2e87da7c3#45c70d4d7d804f7eb61915f9a303abb2e87da7c3"
 dependencies = [
  "gpui-base",
  "gpui-component",
@@ -2563,7 +2563,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit-assets"
 version = "0.7.3"
-source = "git+https://github.com/wabzqem/gpui-component?branch=editor-host-api#1d24987426f011650164b160b6381c247818ed27"
+source = "git+https://github.com/longbridge/gpui-kit?rev=45c70d4d7d804f7eb61915f9a303abb2e87da7c3#45c70d4d7d804f7eb61915f9a303abb2e87da7c3"
 dependencies = [
  "anyhow",
  "gpui-pre",
