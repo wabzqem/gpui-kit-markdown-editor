@@ -36,3 +36,5 @@ gpui-kit = { git = "https://github.com/longbridge/gpui-kit", rev = "45c70d4d7d80
 [[example]]
 name = "story"
 path = "examples/story.rs"
+# The story has its own UI tests (link bar, toolbar commands).
+test = true

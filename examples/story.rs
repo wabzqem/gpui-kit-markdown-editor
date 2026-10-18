@@ -371,3 +371,155 @@ fn main() {
             cx.activate(true);
         });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::TestAppContext;
+    use markdown_editor::{BlockPosition, BlockSelection};
+
+    fn open<'a>(
+        cx: &'a mut TestAppContext,
+        source: &str,
+    ) -> (Entity<BlockEditorStory>, &'a mut gpui::VisualTestContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            markdown_editor::init(cx);
+        });
+        let source = source.to_string();
+        let (story, cx) = cx.add_window_view(move |window, cx| {
+            let mut story = BlockEditorStory::new(window, cx);
+            story.load(&source, cx);
+            story
+        });
+        let (story, cx) = (story, cx);
+        story.update_in(cx, |story, window, cx| {
+            story.editor.update(cx, |e, cx| e.focus(window, cx))
+        });
+        cx.run_until_parked();
+        (story, cx)
+    }
+
+    fn caret_in_leaf(
+        story: &Entity<BlockEditorStory>,
+        cx: &mut gpui::VisualTestContext,
+        leaf: usize,
+        offset: usize,
+    ) {
+        story.update(cx, |story, cx| {
+            story.editor.update(cx, |e, cx| {
+                let id = e.model().document().leaves().nth(leaf).unwrap().id();
+                e.set_selection(BlockSelection::caret(BlockPosition::new(id, offset)), cx)
+                    .unwrap();
+            })
+        });
+    }
+
+    fn settle(cx: &mut gpui::VisualTestContext) {
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+    }
+
+    #[gpui::test]
+    fn cmd_k_opens_the_link_bar_filled_with_the_url_and_apply_sets_it(cx: &mut TestAppContext) {
+        let (story, cx) = open(cx, "see [site](https://a.example) end");
+        caret_in_leaf(&story, cx, 0, 5);
+        cx.simulate_keystrokes(if cfg!(target_os = "macos") {
+            "cmd-k"
+        } else {
+            "ctrl-k"
+        });
+        settle(cx);
+        story.read_with(cx, |story, cx| {
+            assert!(story.link_open, "the bar opens");
+            assert_eq!(
+                story.link_input.read(cx).value().as_ref(),
+                "https://a.example"
+            );
+        });
+        story.update_in(cx, |story, window, cx| {
+            story.close_link(Some("https://b.example".into()), window, cx)
+        });
+        settle(cx);
+        story.read_with(cx, |story, cx| {
+            assert!(!story.link_open, "the bar closes");
+            assert!(
+                story
+                    .editor
+                    .read(cx)
+                    .source()
+                    .contains("(https://b.example)")
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn cmd_k_without_a_link_opens_an_empty_bar_and_cancel_keeps_the_text(cx: &mut TestAppContext) {
+        let (story, cx) = open(cx, "plain");
+        caret_in_leaf(&story, cx, 0, 2);
+        cx.simulate_keystrokes(if cfg!(target_os = "macos") {
+            "cmd-k"
+        } else {
+            "ctrl-k"
+        });
+        settle(cx);
+        story.read_with(cx, |story, cx| {
+            assert!(story.link_open);
+            assert_eq!(story.link_input.read(cx).value().as_ref(), "");
+        });
+        story.update_in(cx, |story, window, cx| story.close_link(None, window, cx));
+        settle(cx);
+        story.read_with(cx, |story, cx| {
+            assert!(!story.link_open);
+            assert_eq!(story.editor.read(cx).source(), "plain");
+        });
+    }
+
+    #[gpui::test]
+    fn task_command_toggles_a_task_item_and_the_preview_follows(cx: &mut TestAppContext) {
+        let (story, cx) = open(cx, "item");
+        caret_in_leaf(&story, cx, 0, 2);
+        // The toolbar's Task button runs this command.
+        story.update(cx, |story, cx| {
+            story.editor.update(cx, |e, cx| {
+                e.run(EditorCommand::ToggleTask, cx).unwrap();
+            })
+        });
+        settle(cx);
+        story.read_with(cx, |story, cx| {
+            assert_eq!(story.editor.read(cx).source(), "- [ ] item");
+            assert!(story.markdown.contains("- [ ] item"), "{}", story.markdown);
+        });
+        story.update(cx, |story, cx| {
+            story.editor.update(cx, |e, cx| {
+                e.run(EditorCommand::ToggleTask, cx).unwrap();
+            })
+        });
+        settle(cx);
+        story.read_with(cx, |story, cx| {
+            assert_eq!(story.editor.read(cx).source(), "- item");
+        });
+    }
+
+    #[gpui::test]
+    fn link_hover_and_click_events_reach_the_story(cx: &mut TestAppContext) {
+        let (story, cx) = open(cx, "see [site](https://a.example)");
+        story.update(cx, |story, cx| {
+            story.editor.update(cx, |_, cx| {
+                cx.emit(BlockEditorEvent::LinkHovered {
+                    url: Some("https://a.example".into()),
+                });
+                cx.emit(BlockEditorEvent::LinkClicked {
+                    url: "https://a.example".into(),
+                });
+            })
+        });
+        settle(cx);
+        story.read_with(cx, |story, _| {
+            assert_eq!(story.hovered_url.as_deref(), Some("https://a.example"));
+            assert_eq!(story.status.as_ref(), "link clicked: https://a.example");
+        });
+    }
+}
