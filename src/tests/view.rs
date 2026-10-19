@@ -1657,7 +1657,7 @@ fn word_motion_and_word_selection(cx: &mut TestAppContext) {
 /// QA bold report: typing `**bold** and `code` and *it* end` one character
 /// at a time through the platform input path (`replace_text_in_range` with
 /// the range the platform read back), after a paragraph, after a heading,
-/// and into an emptied heading.
+/// into an emptied heading, and into a heading that was empty to begin with.
 #[gpui::test]
 fn inline_rules_through_the_platform_input_path(cx: &mut TestAppContext) {
     let typed = "**bold** and `code` and *it* end";
@@ -1677,11 +1677,20 @@ fn inline_rules_through_the_platform_input_path(cx: &mut TestAppContext) {
             "end enter",
             format!("Type here.\n\n## Lists\n\n{want}\n\n- Bullet one"),
         ),
+        // D19: Backspace that empties a heading leaves a paragraph.
         (
             "# Title\n\n## x\n\nUndo",
             1,
             1,
             "backspace",
+            format!("# Title\n\n{want}\n\nUndo"),
+        ),
+        // An empty heading (from source) still takes the typed rules.
+        (
+            "# Title\n\n## \n\nUndo",
+            1,
+            0,
+            "end",
             format!("# Title\n\n## {want}\n\nUndo"),
         ),
     ] {
@@ -3334,4 +3343,119 @@ fn d19_normal_text_command_matches_the_shortcut(cx: &mut TestAppContext) {
             .unwrap();
     });
     assert_eq!(source(&editor, cx), "- in a list\n\n> quoted");
+}
+
+fn heading_src(level: usize, text: &str) -> String {
+    format!("{} {text}", "#".repeat(level))
+}
+
+#[gpui::test]
+fn d19_all_levels_backspace_at_start_and_when_emptied(cx: &mut TestAppContext) {
+    for level in 1..=6u8 {
+        let l = level as usize;
+        // (a) Backspace at offset 0 of a non-empty heading.
+        let (editor, cx) = open(cx, &format!("{}\n\nafter", heading_src(l, "Title")));
+        caret_at(&editor, cx, 0, 0);
+        keys(cx, "backspace");
+        assert_eq!(source(&editor, cx), "Title\n\nafter", "level {level}");
+        keys(cx, "M-z");
+        assert_eq!(
+            source(&editor, cx),
+            format!("{}\n\nafter", heading_src(l, "Title"))
+        );
+
+        // (b) One character left: Backspace empties it into a paragraph, one undo step.
+        let (editor, cx) = open(cx, &format!("{}\n\nafter", heading_src(l, "X")));
+        caret_at(&editor, cx, 0, 1);
+        keys(cx, "backspace");
+        assert_eq!(
+            caret_text_and_kind(&editor, cx),
+            (String::new(), Some(BlockKind::Paragraph)),
+            "level {level}"
+        );
+        keys(cx, "M-z");
+        assert_eq!(
+            caret_text_and_kind(&editor, cx),
+            ("X".to_string(), Some(BlockKind::Heading { level })),
+            "level {level}"
+        );
+
+        // Delete (forward) that empties it, and a selection delete, do the same.
+        let (editor, cx) = open(cx, &format!("{}\n\nafter", heading_src(l, "X")));
+        caret_at(&editor, cx, 0, 0);
+        keys(cx, "backspace");
+        // (offset 0 with text: paragraph with "X"; now Delete the char.)
+        keys(cx, "delete");
+        assert_eq!(
+            caret_text_and_kind(&editor, cx),
+            (String::new(), Some(BlockKind::Paragraph))
+        );
+        let (editor, cx) = open(cx, &format!("{}\n\nafter", heading_src(l, "Word")));
+        caret_at(&editor, cx, 0, 0);
+        keys(cx, "delete delete delete");
+        assert_eq!(
+            caret_text_and_kind(&editor, cx),
+            ("d".to_string(), Some(BlockKind::Heading { level })),
+            "level {level}"
+        );
+        keys(cx, "delete");
+        assert_eq!(
+            caret_text_and_kind(&editor, cx),
+            (String::new(), Some(BlockKind::Paragraph)),
+            "level {level}"
+        );
+        let (editor, cx) = open(cx, &format!("{}\n\nafter", heading_src(l, "Word")));
+        select_in(&editor, cx, (0, 0), (0, 4));
+        keys(cx, "backspace");
+        assert_eq!(
+            caret_text_and_kind(&editor, cx),
+            (String::new(), Some(BlockKind::Paragraph)),
+            "level {level}"
+        );
+        keys(cx, "M-z");
+        assert_eq!(
+            source(&editor, cx),
+            format!("{}\n\nafter", heading_src(l, "Word"))
+        );
+
+        // (c) Enter in an empty heading, all levels, typed through the rule.
+        let (editor, cx) = open(cx, "");
+        type_text(cx, &format!("{} ", "#".repeat(l)));
+        assert_eq!(
+            caret_text_and_kind(&editor, cx),
+            (String::new(), Some(BlockKind::Heading { level }))
+        );
+        keys(cx, "enter");
+        assert_eq!(
+            caret_text_and_kind(&editor, cx),
+            (String::new(), Some(BlockKind::Paragraph)),
+            "level {level}"
+        );
+        assert_eq!(leaf_kinds(&editor, cx).len(), 1);
+    }
+}
+
+#[gpui::test]
+fn d19_typing_a_heading_then_backspacing_through_exits_heading_mode(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "");
+    type_text(cx, "# ");
+    type_text(cx, "Hi");
+    keys(cx, "backspace");
+    assert_eq!(
+        caret_text_and_kind(&editor, cx),
+        ("H".to_string(), Some(BlockKind::Heading { level: 1 }))
+    );
+    keys(cx, "backspace");
+    assert_eq!(
+        caret_text_and_kind(&editor, cx),
+        (String::new(), Some(BlockKind::Paragraph))
+    );
+    type_text(cx, "plain");
+    assert_eq!(source(&editor, cx), "plain");
+    // A run of Backspaces is one undo step (as ever), and it also restores
+    // the heading level: the level change is part of the emptying edit.
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "");
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "# Hi");
 }

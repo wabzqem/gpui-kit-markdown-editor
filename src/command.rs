@@ -515,7 +515,9 @@ impl BlockEditorModel {
         };
         self.transact(origin, |tx| {
             if !range.is_collapsed() {
-                return Ok(caret(delete_range(tx, range)?));
+                let pos = delete_range(tx, range)?;
+                drop_empty_heading(tx, pos.block)?;
+                return Ok(caret(pos));
             }
             let pos = range.start;
             let doc = &*tx.doc;
@@ -554,11 +556,13 @@ impl BlockEditorModel {
             if !forward && pos.offset > 0 {
                 let prev = inline.prev_grapheme(pos.offset).unwrap_or(0);
                 tx.replace_text(pos.block, prev..pos.offset, InlineText::new())?;
+                drop_empty_heading(tx, pos.block)?;
                 return Ok(caret(BlockPosition::new(pos.block, prev)));
             }
             if forward && pos.offset < inline.len() {
                 let next = inline.next_grapheme(pos.offset).unwrap_or(inline.len());
                 tx.replace_text(pos.block, pos.offset..next, InlineText::new())?;
+                drop_empty_heading(tx, pos.block)?;
                 return Ok(caret(pos));
             }
             if doc.kind(pos.block) == Some(&BlockKindData::TableCell) {
@@ -1702,4 +1706,15 @@ fn exit_below(
     let id = paragraph.id;
     tx.insert(parent, index + 1, vec![paragraph])?;
     Ok(BlockPosition::new(id, 0))
+}
+
+/// A heading that a delete has emptied becomes a paragraph, in the same
+/// transaction (one undo step restores both text and level).
+fn drop_empty_heading(tx: &mut TransactionBuilder<'_>, block: BlockId) -> Result<(), CommandError> {
+    if matches!(tx.doc.kind(block), Some(BlockKindData::Heading { .. }))
+        && tx.doc.leaf_len(block) == Some(0)
+    {
+        tx.set_kind(block, BlockKindData::Paragraph)?;
+    }
+    Ok(())
 }

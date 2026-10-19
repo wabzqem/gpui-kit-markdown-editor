@@ -94,7 +94,8 @@ Keys (Cmd instead of Ctrl on macOS): Enter, Backspace/Delete, arrows,
 Home/End, Ctrl+Home/End (document start/end), Shift to select, Ctrl+A,
 Ctrl+B/I/E (bold, italic, code), Ctrl+K (edit link), Ctrl+Alt+0 (normal
 text: the block, or each selected block, becomes a paragraph; Backspace at the
-start of a heading and Enter in an empty heading do the same), Ctrl+Z / Ctrl+Shift+Z
+start of a heading, a Backspace/Delete that empties it, and Enter in an empty
+heading do the same), Ctrl+Z / Ctrl+Shift+Z
 (or Ctrl+Y), Ctrl+C/X/V, Ctrl+Shift+V (plain paste), Tab/Shift+Tab (indent
 list items, move between table cells), Shift+Enter (soft break, also in a
 table cell). Cmd/Ctrl-click a link emits `LinkClicked`; the editor never
