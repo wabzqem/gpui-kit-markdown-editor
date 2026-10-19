@@ -100,6 +100,9 @@ pub(crate) struct FrameLayout {
     pub(crate) index: HashMap<BlockId, usize>,
     /// Table bounds (union of its cells), for node selection by click.
     pub(crate) tables: Vec<(BlockId, Bounds<Pixels>)>,
+    /// The editor's content area: tables span its width, while their cells'
+    /// text bounds only cover the text.
+    pub(crate) content: Option<Bounds<Pixels>>,
 }
 
 impl FrameLayout {

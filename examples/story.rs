@@ -537,6 +537,52 @@ mod tests {
     }
 
     #[gpui::test]
+    fn table_grip_on_hover_opens_a_menu_whose_items_edit_the_table(cx: &mut TestAppContext) {
+        use gpui::EntityInputHandler as _;
+        let (story, cx) = open(cx, "| a | b |\n| --- | --- |\n| 1 | 2 |");
+        settle(cx);
+        caret_in_leaf(&story, cx, 3, 0); // "2"
+        settle(cx);
+        let editor = story.read_with(cx, |story, _| story.editor.clone());
+        let cell = cx.update(|window, cx| {
+            editor.update(cx, |e, cx| {
+                e.bounds_for_range(0..0, Default::default(), window, cx)
+                    .unwrap()
+            })
+        });
+        let over = gpui::point(cell.left() + gpui::px(2.), cell.center().y);
+        cx.simulate_mouse_move(over, None, Default::default());
+        settle(cx);
+        let grips = editor.read_with(cx, |e, _| e.table_grips_at(over));
+        assert_eq!(grips.len(), 2, "{grips:?}");
+        let (_, line, grip) = grips[0];
+        assert_eq!(line, markdown_editor::TableLine::Column(1));
+        cx.simulate_mouse_move(grip.center(), None, Default::default());
+        cx.simulate_click(grip.center(), Default::default());
+        settle(cx);
+        let at = editor
+            .read_with(cx, |e, _| e.table_menu_anchor())
+            .expect("the menu opened");
+        // The first entry, "Insert column left", through a real click.
+        let first = gpui::point(at.x + gpui::px(40.), at.y + gpui::px(14.));
+        cx.simulate_mouse_move(first, None, Default::default());
+        cx.simulate_click(first, Default::default());
+        settle(cx);
+        story.read_with(cx, |story, cx| {
+            assert_eq!(
+                story.editor.read(cx).source(),
+                "| a |  | b |\n| --- | --- | --- |\n| 1 |  | 2 |"
+            );
+            assert!(!story.editor.read(cx).table_menu_open());
+            assert!(
+                story.markdown.contains("| a |  | b |"),
+                "{}",
+                story.markdown
+            );
+        });
+    }
+
+    #[gpui::test]
     fn link_hover_and_click_events_reach_the_story(cx: &mut TestAppContext) {
         let (story, cx) = open(cx, "see [site](https://a.example)");
         story.update(cx, |story, cx| {

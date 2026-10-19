@@ -99,7 +99,12 @@ start of a heading, a Backspace/Delete that empties it, and Enter in an empty
 heading do the same), Ctrl+Z / Ctrl+Shift+Z
 (or Ctrl+Y), Ctrl+C/X/V, Ctrl+Shift+V (plain paste), Tab/Shift+Tab (indent
 list items, move between table cells), Shift+Enter (soft break, also in a
-table cell). Cmd/Ctrl-click a link emits `LinkClicked`; the editor never
+table cell). In a table (caret or cell selection): Ctrl+Alt+Left/Right insert
+a column left/right, Ctrl+Alt+Up/Down insert a row above/below, and
+Ctrl+Alt+Backspace deletes the selected column(s) when whole columns are
+selected, otherwise the current row(s) (never the header row). Hovering a table
+shows a grip above the column and left of the row; clicking it selects that
+column / row and opens a menu (insert, delete, column alignment). Cmd/Ctrl-click a link emits `LinkClicked`; the editor never
 opens a browser.
 
 ## Known limitations

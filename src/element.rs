@@ -366,6 +366,12 @@ impl RenderOnce for BlockEditor {
             .on_action(window.listener_for(s, BlockEditorState::on_undo))
             .on_action(window.listener_for(s, BlockEditorState::on_redo))
             .on_action(window.listener_for(s, BlockEditorState::on_normal_text))
+            .on_action(window.listener_for(s, BlockEditorState::on_table_insert_column_left))
+            .on_action(window.listener_for(s, BlockEditorState::on_table_insert_column_right))
+            .on_action(window.listener_for(s, BlockEditorState::on_table_insert_row_above))
+            .on_action(window.listener_for(s, BlockEditorState::on_table_insert_row_below))
+            .on_action(window.listener_for(s, BlockEditorState::on_table_delete_line))
+            .on_action(window.listener_for(s, BlockEditorState::on_close_table_menu))
             .on_action(window.listener_for(s, BlockEditorState::on_toggle_bold))
             .on_action(window.listener_for(s, BlockEditorState::on_toggle_italic))
             .on_action(window.listener_for(s, BlockEditorState::on_edit_link))
@@ -377,6 +383,7 @@ impl RenderOnce for BlockEditor {
             .on_action(window.listener_for(s, BlockEditorState::on_paste))
             .on_action(window.listener_for(s, BlockEditorState::on_native_paste))
             .on_action(window.listener_for(s, BlockEditorState::on_paste_plain))
+            .children(super::table_ui::render_menu(&self.state, cx))
             .child(EditorRoot {
                 state: self.state.clone(),
                 child: Some(
@@ -514,11 +521,12 @@ impl Element for EditorRoot {
         if let Some(backgrounds) = self.backgrounds.take() {
             let (_, geometries) = collect_leaf_geometry(backgrounds, || child.prepaint(window, cx));
             // Swap in the complete frame; handlers read it until the next one.
-            let frame = super::frame::into_frame(
+            let mut frame = super::frame::into_frame(
                 geometries,
                 self.snapshot.leaves.clone(),
                 &self.snapshot.tables,
             );
+            frame.content = Some(self.content_bounds.get());
             *self.state.read(cx).frame.borrow_mut() = frame;
             let mask = window.content_mask().bounds;
             let content = self.content_bounds.get();
@@ -567,6 +575,8 @@ impl Element for EditorRoot {
         let caret = state.model.caret();
         let show_caret = state.show_caret(window, cx) && collapsed;
         let frame = state.frame.clone();
+        let menu_line = state.table_menu.as_ref().map(|m| (m.table, m.line));
+        let grips = state.table_grips_at(window.mouse_position());
         // Node selection (a table, code block, …): the blocks' laid-out area.
         let selected_area = state.model.selected_blocks().and_then(|(parent, range)| {
             let doc = &state.model.doc;
@@ -620,6 +630,13 @@ impl Element for EditorRoot {
             );
             window.paint_quad(fill(grip, style.caret().opacity(0.35)).corner_radii(px(2.)));
         }
+        // Table grips (D20): only for the hovered column / row, or the
+        // line whose menu is open.
+        for (table, line, grip) in grips {
+            let open = menu_line == Some((table, line));
+            let alpha = if open { 0.8 } else { 0.35 };
+            window.paint_quad(fill(grip, style.caret().opacity(alpha)).corner_radii(px(2.)));
+        }
         if let Some(area) = selected_area {
             let area = area.dilate(px(4.));
             window.paint_quad(gpui::quad(
@@ -662,6 +679,22 @@ impl Element for EditorRoot {
                 || event.button != MouseButton::Left
                 || !hitbox.is_hovered(window)
             {
+                return;
+            }
+            // A table grip selects its row / column and opens the menu;
+            // any other click closes an open menu.
+            if !event.modifiers.shift
+                && entity.update(cx, |state, cx| {
+                    let hit = state.click_table_grip(event.position, cx);
+                    if !hit {
+                        state.close_table_menu(cx);
+                    }
+                    hit
+                })
+            {
+                let focus = entity.read(cx).focus_handle.clone();
+                window.focus(&focus, cx);
+                cx.stop_propagation();
                 return;
             }
             // A task checkbox toggles without moving the caret or starting

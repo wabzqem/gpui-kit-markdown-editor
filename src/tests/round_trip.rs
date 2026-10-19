@@ -79,7 +79,7 @@ fn list_continuation_indented() {
 
 #[test]
 fn table_cells_keep_marks() {
-    let source = "| **a** | <u>b</u> |\n| :-- | --: |\n| *c* | d |";
+    let source = "| **a** | <u>b</u> |\n| :--- | ---: |\n| *c* | d |";
     assert_eq!(round_trip(source), source);
 }
 

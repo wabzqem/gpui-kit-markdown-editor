@@ -67,15 +67,31 @@ fn aligns(doc: &EditorDocument, table: BlockId) -> Vec<ColumnAlign> {
     }
 }
 
-/// Which table edit to make at the caret's cell.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// Which table edit to make at the caret's cell, or across the rows and
+/// columns of a cell selection (D20).
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum TableEdit {
+    /// Insert an empty row above the topmost selected row.
     AddRowAbove,
+    /// Insert an empty row below the bottommost selected row.
     AddRowBelow,
+    /// Remove the selected row(s); removing every row removes the table.
     RemoveRow,
+    /// Insert an empty column left of the leftmost selected column.
     AddColumnLeft,
+    /// Insert an empty column right of the rightmost selected column.
     AddColumnRight,
+    /// Remove the selected column(s); removing every column removes the table.
     RemoveColumn,
+    /// Set the alignment of the selected column(s).
+    SetColumnAlign(ColumnAlign),
+}
+
+/// A table row or column, as a grip names it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TableLine {
+    Row(usize),
+    Column(usize),
 }
 
 impl BlockEditorModel {
@@ -230,23 +246,95 @@ impl BlockEditorModel {
         Ok(true)
     }
 
-    /// Add or remove a row or column at the caret's cell. Removing the last
-    /// row or column removes the table.
+    /// The table and the rows / columns the selection spans: the cell
+    /// rectangle of a cell selection, or the caret's cell.
+    pub(crate) fn table_span(
+        &self,
+    ) -> Option<(
+        BlockId,
+        std::ops::RangeInclusive<usize>,
+        std::ops::RangeInclusive<usize>,
+    )> {
+        let (table, head) = self.current_cell()?;
+        let (hr, hc) = cell_coords(&self.doc, table, head)?;
+        let (ar, ac) = match self.selection() {
+            BlockSelection::Cells { anchor, .. } => cell_coords(&self.doc, table, *anchor)?,
+            BlockSelection::Text { anchor, .. } if anchor.block == head => (hr, hc),
+            BlockSelection::Text { anchor, .. } => {
+                cell_coords(&self.doc, table, anchor.block).unwrap_or((hr, hc))
+            }
+            BlockSelection::Blocks { .. } => return None,
+        };
+        Some((table, ar.min(hr)..=ar.max(hr), ac.min(hc)..=ac.max(hc)))
+    }
+
+    /// Whether the selection is whole column(s): a cell selection over
+    /// every row of its table.
+    pub fn whole_columns_selected(&self) -> bool {
+        matches!(self.selection(), BlockSelection::Cells { .. })
+            && self.table_span().is_some_and(|(table, rows, _)| {
+                *rows.start() == 0 && *rows.end() + 1 == self.doc.children(table).len()
+            })
+    }
+
+    /// The alignment of the column holding the selection head.
+    pub fn column_align_at_caret(&self) -> Option<ColumnAlign> {
+        let (table, _, cols) = self.table_span()?;
+        Some(
+            aligns(&self.doc, table)
+                .get(*cols.start())
+                .copied()
+                .unwrap_or_default(),
+        )
+    }
+
+    /// Select a whole row or column of `table` as `BlockSelection::Cells`.
+    pub fn select_table_line(
+        &mut self,
+        table: BlockId,
+        line: TableLine,
+    ) -> Result<bool, CommandError> {
+        let grid = grid(&self.doc, table);
+        let (anchor, head) = match line {
+            TableLine::Row(r) => {
+                let Some(row) = grid.get(r) else {
+                    return Ok(false);
+                };
+                match (row.first(), row.last()) {
+                    (Some(a), Some(h)) => (*a, *h),
+                    _ => return Ok(false),
+                }
+            }
+            TableLine::Column(c) => {
+                let (Some(a), Some(h)) = (
+                    grid.first().and_then(|r| r.get(c)),
+                    grid.last().and_then(|r| r.get(c)),
+                ) else {
+                    return Ok(false);
+                };
+                (*a, *h)
+            }
+        };
+        self.set_selection(BlockSelection::Cells { anchor, head })?;
+        Ok(true)
+    }
+
+    /// Add or remove rows or columns, or align columns, at the caret's cell
+    /// or across the cell selection (one undo step). Removing every row or
+    /// every column removes the table.
     pub(crate) fn edit_table(&mut self, edit: TableEdit) -> Result<bool, CommandError> {
-        let Some((table, cell)) = self.current_cell() else {
+        let Some((table, rsel, csel)) = self.table_span() else {
             return Err(CommandError::Unsupported("caret is not in a table"));
         };
-        let Some((r, c)) = cell_coords(&self.doc, table, cell) else {
-            return Ok(false);
-        };
+        let (r0, r1, c0, c1) = (*rsel.start(), *rsel.end(), *csel.start(), *csel.end());
         let grid = grid(&self.doc, table);
         let rows = grid.len();
         let cols = grid.iter().map(Vec::len).max().unwrap_or(0);
         let row_ids = self.doc.children(table).to_vec();
         let mut aligns = aligns(&self.doc, table);
         aligns.resize(cols, ColumnAlign::default());
-        let remove_table = matches!(edit, TableEdit::RemoveRow if rows == 1)
-            || matches!(edit, TableEdit::RemoveColumn if cols == 1);
+        let remove_table = matches!(edit, TableEdit::RemoveRow if r0 == 0 && r1 + 1 >= rows)
+            || matches!(edit, TableEdit::RemoveColumn if c0 == 0 && c1 + 1 >= cols);
         if remove_table {
             self.set_selection(BlockSelection::Blocks {
                 anchor: table,
@@ -254,13 +342,19 @@ impl BlockEditorModel {
             })?;
             return self.run(super::command::EditorCommand::DeleteSelection);
         }
+        let r = r0;
+        let c = c0;
+        let cell_at = |row: usize, col: usize| -> BlockId {
+            let row = &grid[row.min(rows - 1)];
+            row[col.min(row.len().saturating_sub(1))]
+        };
         self.transact(EditOrigin::Command("table_edit"), |tx| {
             let caret_cell = match edit {
                 TableEdit::AddRowAbove | TableEdit::AddRowBelow => {
                     let at = if edit == TableEdit::AddRowBelow {
-                        r + 1
+                        r1 + 1
                     } else {
-                        r
+                        r0
                     };
                     let row = empty_row(cols);
                     let mut ids = Vec::new();
@@ -269,17 +363,20 @@ impl BlockEditorModel {
                     ids[1 + c.min(cols - 1)]
                 }
                 TableEdit::RemoveRow => {
-                    tx.remove(table, r..r + 1)?;
-                    let next = if r < rows - 1 { r + 1 } else { r - 1 };
-                    grid[next][c.min(grid[next].len().saturating_sub(1))]
+                    tx.remove(table, r0..r1 + 1)?;
+                    if r1 + 1 < rows {
+                        cell_at(r1 + 1, c)
+                    } else {
+                        cell_at(r0 - 1, c)
+                    }
                 }
                 TableEdit::AddColumnLeft | TableEdit::AddColumnRight => {
                     let at = if edit == TableEdit::AddColumnRight {
-                        c + 1
+                        c1 + 1
                     } else {
-                        c
+                        c0
                     };
-                    let mut caret_cell = cell;
+                    let mut caret_cell = cell_at(r, c);
                     for (ri, row) in row_ids.iter().enumerate() {
                         let new = empty_cell();
                         if ri == r {
@@ -288,7 +385,7 @@ impl BlockEditorModel {
                         let at = at.min(tx.doc.children(*row).len());
                         tx.insert(*row, at, vec![new])?;
                     }
-                    aligns.insert(at, ColumnAlign::default());
+                    aligns.insert(at.min(aligns.len()), ColumnAlign::default());
                     tx.set_kind(
                         table,
                         BlockKindData::Table {
@@ -299,19 +396,36 @@ impl BlockEditorModel {
                 }
                 TableEdit::RemoveColumn => {
                     for row in &row_ids {
-                        if c < tx.doc.children(*row).len() {
-                            tx.remove(*row, c..c + 1)?;
+                        let len = tx.doc.children(*row).len();
+                        if c0 < len {
+                            tx.remove(*row, c0..(c1 + 1).min(len))?;
                         }
                     }
-                    aligns.remove(c);
+                    aligns.drain(c0..(c1 + 1).min(aligns.len()));
                     tx.set_kind(
                         table,
                         BlockKindData::Table {
                             aligns: aligns.clone(),
                         },
                     )?;
-                    let nc = if c < cols - 1 { c + 1 } else { c - 1 };
-                    grid[r][nc.min(grid[r].len() - 1)]
+                    if c1 + 1 < cols {
+                        cell_at(r, c1 + 1)
+                    } else {
+                        cell_at(r, c0 - 1)
+                    }
+                }
+                TableEdit::SetColumnAlign(align) => {
+                    for a in &mut aligns[c0..=c1.min(cols - 1)] {
+                        *a = align;
+                    }
+                    tx.set_kind(
+                        table,
+                        BlockKindData::Table {
+                            aligns: aligns.clone(),
+                        },
+                    )?;
+                    // Keep the selection (a column stays selected).
+                    return Ok(None);
                 }
             };
             Ok(Some(BlockSelection::caret(BlockPosition::new(

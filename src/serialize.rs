@@ -134,9 +134,9 @@ fn block(doc: &EditorDocument, id: BlockId) -> String {
                     let delimiters: Vec<&str> = (0..width)
                         .map(|ix| match aligns.get(ix).copied().unwrap_or_default() {
                             ColumnAlign::None => "---",
-                            ColumnAlign::Left => ":--",
-                            ColumnAlign::Center => ":-:",
-                            ColumnAlign::Right => "--:",
+                            ColumnAlign::Left => ":---",
+                            ColumnAlign::Center => ":---:",
+                            ColumnAlign::Right => "---:",
                         })
                         .collect();
                     lines.push(format!("| {} |", delimiters.join(" | ")));

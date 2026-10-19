@@ -66,6 +66,7 @@ mod step;
 mod style;
 mod support;
 pub(crate) mod table;
+mod table_ui;
 mod transaction;
 mod undo;
 
@@ -78,10 +79,11 @@ pub use command::{CommandError, EditorCommand};
 pub use document::{BlockRef, DocumentRef};
 pub use editor::BlockEditorModel;
 pub use element::BlockEditor;
+pub use gpui_kit::base::text::editor_host::ColumnAlign;
 pub use input_rule::InputRule;
 pub use state::{BlockEditorEvent, BlockEditorState, ClipboardPolicy, PasteRequest, SubmitPolicy};
 pub use style::BlockEditorStyle;
-pub use table::TableEdit;
+pub use table::{TableEdit, TableLine};
 
 /// Registers the editor's key bindings. Call once at startup, after `gpui_kit::init`.
 pub fn init(cx: &mut gpui::App) {

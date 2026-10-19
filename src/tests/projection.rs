@@ -204,7 +204,7 @@ fn direct_projection_matches_parse_on_fixtures() {
         "a [link](https://example.com) b",
         "![alt](https://example.com/a.png)",
         "`code` and ~~strike~~ **b*bi*b** <u>u</u> <mark>m</mark>",
-        "| **a** | <u>b</u> |\n| :-- | --: |\n| *c* | d |",
+        "| **a** | <u>b</u> |\n| :--- | ---: |\n| *c* | d |",
         "lead  and trail ",
     ] {
         assert_equivalent(&model(source));

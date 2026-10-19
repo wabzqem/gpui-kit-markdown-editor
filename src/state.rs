@@ -65,6 +65,12 @@ actions!(
         ExitBlock,
         ToggleCode,
         NormalText,
+        TableInsertColumnLeft,
+        TableInsertColumnRight,
+        TableInsertRowAbove,
+        TableInsertRowBelow,
+        TableDeleteLine,
+        CloseTableMenu,
         Indent,
         Outdent,
         Copy,
@@ -133,6 +139,14 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new(&format!("{m}-k"), EditLink, ctx),
         // "Normal text": the block (or each selected block) becomes a paragraph.
         KeyBinding::new(&format!("{m}-alt-0"), NormalText, ctx),
+        // Tables (D20): only act with the caret or a cell selection in a
+        // table; elsewhere the keystroke propagates.
+        KeyBinding::new(&format!("{m}-alt-left"), TableInsertColumnLeft, ctx),
+        KeyBinding::new(&format!("{m}-alt-right"), TableInsertColumnRight, ctx),
+        KeyBinding::new(&format!("{m}-alt-up"), TableInsertRowAbove, ctx),
+        KeyBinding::new(&format!("{m}-alt-down"), TableInsertRowBelow, ctx),
+        KeyBinding::new(&format!("{m}-alt-backspace"), TableDeleteLine, ctx),
+        KeyBinding::new("escape", CloseTableMenu, Some("BlockEditor && table_menu")),
         KeyBinding::new("shift-enter", SoftBreak, ctx),
         KeyBinding::new(&format!("{m}-enter"), ExitBlock, ctx),
         KeyBinding::new(&format!("{m}-c"), Copy, ctx),
@@ -303,6 +317,10 @@ pub struct BlockEditorState {
     hovered_link: Option<SharedString>,
     /// The mouse is over a task checkbox, or a link with Cmd/Ctrl held.
     pub(crate) pointer_hand: bool,
+    /// The open table grip menu (D20).
+    pub(crate) table_menu: Option<super::table_ui::TableMenu>,
+    /// The table grips the pointer shows (to repaint on change).
+    pub(crate) table_hover: Vec<(BlockId, crate::TableLine)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -365,6 +383,8 @@ impl BlockEditorState {
             input_rule_filter: None,
             hovered_link: None,
             pointer_hand: false,
+            table_menu: None,
+            table_hover: Vec::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -379,10 +399,14 @@ impl BlockEditorState {
         self.submit_policy = policy;
     }
     pub(crate) fn key_context(&self) -> &'static str {
-        if self.submit_policy == SubmitPolicy::Enter {
-            "BlockEditor submit=enter"
-        } else {
-            CONTEXT
+        match (
+            self.submit_policy == SubmitPolicy::Enter,
+            self.table_menu.is_some(),
+        ) {
+            (true, false) => "BlockEditor submit=enter",
+            (true, true) => "BlockEditor submit=enter table_menu",
+            (false, false) => CONTEXT,
+            (false, true) => "BlockEditor table_menu",
         }
     }
     pub fn with_clipboard_policy(mut self, policy: ClipboardPolicy) -> Self {
@@ -1152,6 +1176,7 @@ impl BlockEditorState {
     }
 
     pub(crate) fn hover_at(&mut self, at: Point<Pixels>, secondary: bool, cx: &mut Context<Self>) {
+        self.hover_table(at, cx);
         let url = self.link_at(at).map(|(_, _, url)| url);
         let hand = self.task_checkbox_at(at).is_some() || (secondary && url.is_some());
         if hand != self.pointer_hand {
@@ -1702,6 +1727,79 @@ impl BlockEditorState {
         self.model.break_coalescing();
         let _ = self.run(EditorCommand::SetBlockKind(BlockKind::Paragraph), cx);
         self.model.break_coalescing();
+    }
+    pub(crate) fn on_close_table_menu(
+        &mut self,
+        _: &CloseTableMenu,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_table_menu(cx);
+    }
+    fn table_key(&mut self, edit: Option<crate::TableEdit>, cx: &mut Context<Self>) {
+        if self.readonly || self.model.current_cell().is_none() {
+            cx.propagate();
+            return;
+        }
+        self.end_composition();
+        self.close_table_menu(cx);
+        if let Some(edit) = edit {
+            self.model.break_coalescing();
+            let _ = self.run(EditorCommand::EditTable(edit), cx);
+            self.model.break_coalescing();
+        }
+    }
+    pub(crate) fn on_table_insert_column_left(
+        &mut self,
+        _: &TableInsertColumnLeft,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.table_key(Some(crate::TableEdit::AddColumnLeft), cx);
+    }
+    pub(crate) fn on_table_insert_column_right(
+        &mut self,
+        _: &TableInsertColumnRight,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.table_key(Some(crate::TableEdit::AddColumnRight), cx);
+    }
+    pub(crate) fn on_table_insert_row_above(
+        &mut self,
+        _: &TableInsertRowAbove,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.table_key(Some(crate::TableEdit::AddRowAbove), cx);
+    }
+    pub(crate) fn on_table_insert_row_below(
+        &mut self,
+        _: &TableInsertRowBelow,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.table_key(Some(crate::TableEdit::AddRowBelow), cx);
+    }
+    /// Cmd/Ctrl+Alt+Backspace: whole column(s) selected → delete them;
+    /// otherwise delete the row(s) of the caret / cell selection, unless
+    /// that includes the header row (then nothing happens).
+    pub(crate) fn on_table_delete_line(
+        &mut self,
+        _: &TableDeleteLine,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let edit = self.table_delete_edit();
+        self.table_key(edit, cx);
+    }
+    /// What Cmd/Ctrl+Alt+Backspace does here (`None`: nothing).
+    pub fn table_delete_edit(&self) -> Option<crate::TableEdit> {
+        if self.model.whole_columns_selected() {
+            return Some(crate::TableEdit::RemoveColumn);
+        }
+        let (_, rows, _) = self.model.table_span()?;
+        (*rows.start() > 0).then_some(crate::TableEdit::RemoveRow)
     }
     pub(crate) fn on_toggle_bold(
         &mut self,

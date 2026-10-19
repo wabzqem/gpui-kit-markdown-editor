@@ -375,7 +375,7 @@ fn table_node_selection_moves_and_deletes() {
     assert_invariants(&m);
 }
 
-const GRID: &str = "| a | b |\n| :-: | --: |\n| 1 | 2 |";
+const GRID: &str = "| a | b |\n| :---: | ---: |\n| 1 | 2 |";
 
 fn table_ids(m: &BlockEditorModel) -> Vec<BlockId> {
     m.document().leaves().map(|b| b.id()).collect()
@@ -385,7 +385,7 @@ fn table_ids(m: &BlockEditorModel) -> Vec<BlockId> {
 fn table_alignment_round_trips() {
     for source in [
         GRID,
-        "| l | c | r |\n| :-- | :-: | --: |\n| 1 | **2** | `3` |",
+        "| l | c | r |\n| :--- | :---: | ---: |\n| 1 | **2** | `3` |",
         "x\n\n| a |\n| --- |\n|  |\n\ny",
     ] {
         assert_eq!(model(source).source(), source);
@@ -398,7 +398,7 @@ fn typing_and_marks_in_cells() {
     caret_in(&mut m, 2, 1);
     m.insert_text("0", EditOrigin::Typing).unwrap();
     m.split_block().ok(); // Enter in a cell does nothing.
-    assert_eq!(m.source(), "| a | b |\n| :-: | --: |\n| 10 | 2 |");
+    assert_eq!(m.source(), "| a | b |\n| :---: | ---: |\n| 10 | 2 |");
     let ids = table_ids(&m);
     m.set_selection(BlockSelection::Text {
         anchor: BlockPosition::new(ids[2], 0),
@@ -406,7 +406,7 @@ fn typing_and_marks_in_cells() {
     })
     .unwrap();
     m.run(EditorCommand::ToggleMark(MarkKind::Italic)).unwrap();
-    assert_eq!(m.source(), "| a | b |\n| :-: | --: |\n| *10* | 2 |");
+    assert_eq!(m.source(), "| a | b |\n| :---: | ---: |\n| *10* | 2 |");
     assert_invariants(&m);
 }
 
@@ -500,12 +500,12 @@ fn insert_table_and_row_column_commands() {
         .unwrap();
     assert_eq!(
         m.source(),
-        "| a |  | b |\n| :-: | --- | --: |\n| 1 |  | 2 |"
+        "| a |  | b |\n| :---: | --- | ---: |\n| 1 |  | 2 |"
     );
     m.insert_text("n", EditOrigin::Typing).unwrap();
     assert_eq!(
         m.source(),
-        "| a | n | b |\n| :-: | --- | --: |\n| 1 |  | 2 |"
+        "| a | n | b |\n| :---: | --- | ---: |\n| 1 |  | 2 |"
     );
     m.run(EditorCommand::EditTable(TableEdit::RemoveColumn))
         .unwrap();
@@ -514,14 +514,17 @@ fn insert_table_and_row_column_commands() {
         .unwrap();
     assert_eq!(
         m.source(),
-        "| a | b |  |\n| :-: | --: | --- |\n| 1 | 2 |  |"
+        "| a | b |  |\n| :---: | ---: | --- |\n| 1 | 2 |  |"
     );
     assert!(m.undo());
     assert_eq!(m.source(), GRID);
     caret_in(&mut m, 2, 0);
     m.run(EditorCommand::EditTable(TableEdit::AddRowAbove))
         .unwrap();
-    assert_eq!(m.source(), "| a | b |\n| :-: | --: |\n|  |  |\n| 1 | 2 |");
+    assert_eq!(
+        m.source(),
+        "| a | b |\n| :---: | ---: |\n|  |  |\n| 1 | 2 |"
+    );
     m.run(EditorCommand::EditTable(TableEdit::RemoveRow))
         .unwrap();
     assert_eq!(m.source(), GRID);
@@ -534,13 +537,13 @@ fn insert_table_and_row_column_commands() {
     caret_in(&mut m, 0, 0);
     m.run(EditorCommand::EditTable(TableEdit::RemoveRow))
         .unwrap();
-    assert_eq!(m.source(), "| 1 | 2 |\n| :-: | --: |");
+    assert_eq!(m.source(), "| 1 | 2 |\n| :---: | ---: |");
     // Removing the only row removes the table.
     m.run(EditorCommand::EditTable(TableEdit::RemoveRow))
         .unwrap();
     assert_eq!(m.source(), "");
     assert!(m.undo());
-    assert_eq!(m.source(), "| 1 | 2 |\n| :-: | --: |");
+    assert_eq!(m.source(), "| 1 | 2 |\n| :---: | ---: |");
     assert_invariants(&m);
 }
 
@@ -566,4 +569,157 @@ fn typing_over_node_selected_blocks_replaces_them() {
         assert!(m.undo());
         assert_eq!(m.source(), original, "one undo step for {source:?}");
     }
+}
+
+// ---- D20: table rows / columns over cell selections, alignment -------------
+
+const T3: &str = "| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |";
+
+fn table_id(m: &BlockEditorModel) -> crate::BlockId {
+    let doc = m.document();
+    let cell = doc.leaves().next().unwrap().id();
+    crate::table::table_of(&m.doc, cell).unwrap()
+}
+
+fn cells(m: &mut BlockEditorModel, anchor: usize, head: usize) {
+    let ids: Vec<_> = m.document().leaves().map(|l| l.id()).collect();
+    m.set_selection(BlockSelection::Cells {
+        anchor: ids[anchor],
+        head: ids[head],
+    })
+    .unwrap();
+}
+
+#[test]
+fn d20_multi_column_selection_inserts_beside_and_removes_all() {
+    let mut m = model(T3);
+    cells(&mut m, 0, 4); // a..2: columns 0-1, both rows
+    assert!(m.whole_columns_selected());
+    m.run(EditorCommand::EditTable(TableEdit::AddColumnRight))
+        .unwrap();
+    assert_eq!(
+        m.source(),
+        "| a | b |  | c |\n| --- | --- | --- | --- |\n| 1 | 2 |  | 3 |"
+    );
+    assert!(m.undo());
+    cells(&mut m, 0, 4);
+    m.run(EditorCommand::EditTable(TableEdit::AddColumnLeft))
+        .unwrap();
+    assert_eq!(
+        m.source(),
+        "|  | a | b | c |\n| --- | --- | --- | --- |\n|  | 1 | 2 | 3 |"
+    );
+    assert!(m.undo());
+    cells(&mut m, 1, 5); // b..3: columns 1-2
+    m.run(EditorCommand::EditTable(TableEdit::RemoveColumn))
+        .unwrap();
+    assert_eq!(m.source(), "| a |\n| --- |\n| 1 |");
+    // The caret lands in the column before the removed ones.
+    assert_eq!(m.caret().map(|c| c.offset), Some(0));
+    assert!(m.undo());
+    assert_eq!(m.source(), T3);
+    assert!(m.redo());
+    assert_eq!(m.source(), "| a |\n| --- |\n| 1 |");
+    assert_invariants(&m);
+}
+
+#[test]
+fn d20_rows_from_a_selection_and_deletion_edges() {
+    let src = "| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |";
+    let mut m = model(src);
+    cells(&mut m, 2, 5); // both body rows
+    assert!(!m.whole_columns_selected());
+    m.run(EditorCommand::EditTable(TableEdit::AddRowBelow))
+        .unwrap();
+    assert_eq!(m.source(), format!("{src}\n|  |  |"));
+    assert!(m.undo());
+    cells(&mut m, 2, 5);
+    m.run(EditorCommand::EditTable(TableEdit::AddRowAbove))
+        .unwrap();
+    assert_eq!(
+        m.source(),
+        "| a | b |\n| --- | --- |\n|  |  |\n| 1 | 2 |\n| 3 | 4 |"
+    );
+    assert!(m.undo());
+    // Deleting every body row leaves a header-only table.
+    cells(&mut m, 2, 5);
+    m.run(EditorCommand::EditTable(TableEdit::RemoveRow))
+        .unwrap();
+    assert_eq!(m.source(), "| a | b |\n| --- | --- |");
+    assert!(m.undo());
+    assert_eq!(m.source(), src);
+    // Deleting every column deletes the table (one undo step).
+    cells(&mut m, 0, 5);
+    m.run(EditorCommand::EditTable(TableEdit::RemoveColumn))
+        .unwrap();
+    assert_eq!(m.source(), "");
+    assert!(m.undo());
+    assert_eq!(m.source(), src);
+    assert_invariants(&m);
+}
+
+#[test]
+fn d20_alignment_writes_and_round_trips() {
+    let mut m = model(T3);
+    caret_in(&mut m, 0, 0);
+    m.run(EditorCommand::EditTable(TableEdit::SetColumnAlign(
+        crate::ColumnAlign::Center,
+    )))
+    .unwrap();
+    assert_eq!(m.column_align_at_caret(), Some(crate::ColumnAlign::Center));
+    cells(&mut m, 1, 5);
+    m.run(EditorCommand::EditTable(TableEdit::SetColumnAlign(
+        crate::ColumnAlign::Right,
+    )))
+    .unwrap();
+    let want = "| a | b | c |\n| :---: | ---: | ---: |\n| 1 | 2 | 3 |";
+    assert_eq!(m.source(), want);
+    // The selection stays (a column stays selected).
+    assert!(matches!(m.selection(), BlockSelection::Cells { .. }));
+    assert_eq!(model(want).source(), want);
+    cells(&mut m, 0, 3);
+    m.run(EditorCommand::EditTable(TableEdit::SetColumnAlign(
+        crate::ColumnAlign::Left,
+    )))
+    .unwrap();
+    assert_eq!(
+        m.source(),
+        "| a | b | c |\n| :--- | ---: | ---: |\n| 1 | 2 | 3 |"
+    );
+    m.run(EditorCommand::EditTable(TableEdit::SetColumnAlign(
+        crate::ColumnAlign::None,
+    )))
+    .unwrap();
+    assert_eq!(
+        m.source(),
+        "| a | b | c |\n| --- | ---: | ---: |\n| 1 | 2 | 3 |"
+    );
+    // Each alignment change is its own undo step.
+    for _ in 0..4 {
+        assert!(m.undo());
+    }
+    assert_eq!(m.source(), T3);
+    assert!(m.redo());
+    assert_eq!(
+        m.source(),
+        "| a | b | c |\n| :---: | --- | --- |\n| 1 | 2 | 3 |"
+    );
+    // Short delimiter rows from elsewhere normalise to three dashes.
+    assert_eq!(
+        model("| a | b | c |\n| :-- | :-: | --: |\n| 1 | 2 | 3 |").source(),
+        "| a | b | c |\n| :--- | :---: | ---: |\n| 1 | 2 | 3 |"
+    );
+}
+
+#[test]
+fn d20_select_table_line_selects_whole_rows_and_columns() {
+    let mut m = model(T3);
+    let t = table_id(&m);
+    m.select_table_line(t, crate::TableLine::Column(1)).unwrap();
+    assert!(m.whole_columns_selected());
+    assert_eq!(m.selected_cells().unwrap().len(), 2);
+    m.select_table_line(t, crate::TableLine::Row(1)).unwrap();
+    assert!(!m.whole_columns_selected());
+    assert_eq!(m.selected_cells().unwrap()[0].len(), 3);
+    assert!(!m.select_table_line(t, crate::TableLine::Row(9)).unwrap());
 }

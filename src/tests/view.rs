@@ -3459,3 +3459,158 @@ fn d19_typing_a_heading_then_backspacing_through_exits_heading_mode(cx: &mut Tes
     keys(cx, "M-z");
     assert_eq!(source(&editor, cx), "# Hi");
 }
+
+// ---- D20: table shortcuts, grips and menu ----------------------------------
+
+const TBL: &str = "| a | b |\n| --- | --- |\n| 1 | 2 |";
+
+#[gpui::test]
+fn d20_table_shortcuts_through_the_key_path(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, &format!("intro\n\n{TBL}"));
+    caret_at(&editor, cx, 3, 0); // "1"
+    keys(cx, "M-alt-right");
+    let right = "| a |  | b |\n| --- | --- | --- |\n| 1 |  | 2 |";
+    assert_eq!(source(&editor, cx), format!("intro\n\n{right}"));
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), format!("intro\n\n{TBL}"));
+    keys(cx, "M-shift-z");
+    assert_eq!(source(&editor, cx), format!("intro\n\n{right}"));
+    keys(cx, "M-z");
+    caret_at(&editor, cx, 3, 0);
+    keys(cx, "M-alt-left");
+    assert_eq!(
+        source(&editor, cx),
+        "intro\n\n|  | a | b |\n| --- | --- | --- |\n|  | 1 | 2 |"
+    );
+    keys(cx, "M-z");
+    caret_at(&editor, cx, 3, 0);
+    keys(cx, "M-alt-up");
+    assert_eq!(
+        source(&editor, cx),
+        "intro\n\n| a | b |\n| --- | --- |\n|  |  |\n| 1 | 2 |"
+    );
+    keys(cx, "M-z");
+    caret_at(&editor, cx, 3, 0);
+    keys(cx, "M-alt-down");
+    assert_eq!(source(&editor, cx), format!("intro\n\n{TBL}\n|  |  |"));
+    // Delete: a body row goes; the caret moves to a neighbouring row.
+    keys(cx, "M-alt-backspace");
+    assert_eq!(source(&editor, cx), format!("intro\n\n{TBL}"));
+    caret_at(&editor, cx, 3, 0);
+    keys(cx, "M-alt-backspace");
+    assert_eq!(source(&editor, cx), "intro\n\n| a | b |\n| --- | --- |");
+    // In the header row it does nothing.
+    keys(cx, "M-alt-backspace");
+    assert_eq!(source(&editor, cx), "intro\n\n| a | b |\n| --- | --- |");
+    keys(cx, "M-z");
+    // A whole column selected: the column goes.
+    let table = editor.read_with(cx, |e, _| e.frame.borrow().tables[0].0);
+    editor.update(cx, |e, _| {
+        e.model
+            .select_table_line(table, crate::TableLine::Column(0))
+            .unwrap();
+    });
+    keys(cx, "M-alt-backspace");
+    assert_eq!(source(&editor, cx), "intro\n\n| b |\n| --- |\n| 2 |");
+    // Outside a table the keys do nothing to the document.
+    caret_at(&editor, cx, 0, 2);
+    keys(cx, "M-alt-left M-alt-up M-alt-backspace");
+    assert_eq!(source(&editor, cx), "intro\n\n| b |\n| --- |\n| 2 |");
+}
+
+#[gpui::test]
+fn d20_grips_show_on_hover_and_a_click_opens_the_menu(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, &format!("intro\n\n{TBL}\n\nafter"));
+    let (table, b) = editor.read_with(cx, |e, _| e.frame.borrow().tables[0]);
+    // Away from the table: no grips.
+    cx.simulate_mouse_move(
+        gpui::point(b.left() + px(4.), b.top() - px(60.)),
+        None,
+        Default::default(),
+    );
+    draw(cx);
+    assert!(editor.read_with(cx, |e, _| e.table_hover.is_empty()));
+    // Over the second column of the body row: its column and row grips.
+    let over = gpui::point(b.right() - px(4.), b.bottom() - px(4.));
+    cx.simulate_mouse_move(over, None, Default::default());
+    draw(cx);
+    assert_eq!(
+        editor.read_with(cx, |e, _| e.table_hover.clone()),
+        vec![
+            (table, crate::TableLine::Column(1)),
+            (table, crate::TableLine::Row(1))
+        ]
+    );
+    let grip = editor.read_with(cx, |e, _| {
+        e.table_grips_at(over)
+            .into_iter()
+            .find(|(_, l, _)| *l == crate::TableLine::Column(1))
+            .unwrap()
+            .2
+    });
+    cx.simulate_mouse_move(grip.center(), None, Default::default());
+    cx.simulate_click(grip.center(), Default::default());
+    draw(cx);
+    editor.read_with(cx, |e, _| {
+        assert!(e.table_menu_open());
+        assert!(e.model.whole_columns_selected());
+        assert_eq!(e.table_menu_align(), Some(crate::ColumnAlign::None));
+    });
+    // Alignment from the menu keeps it open and shows the new value.
+    editor.update(cx, |e, cx| {
+        e.table_menu_action(
+            crate::TableEdit::SetColumnAlign(crate::ColumnAlign::Right),
+            cx,
+        )
+    });
+    draw(cx);
+    assert_eq!(
+        source(&editor, cx),
+        "intro\n\n| a | b |\n| --- | ---: |\n| 1 | 2 |\n\nafter"
+    );
+    assert_eq!(
+        editor.read_with(cx, |e, _| e.table_menu_align()),
+        Some(crate::ColumnAlign::Right)
+    );
+    // Insert column left: one step, the menu closes.
+    editor.update(cx, |e, cx| {
+        e.table_menu_action(crate::TableEdit::AddColumnLeft, cx)
+    });
+    draw(cx);
+    assert!(!editor.read_with(cx, |e, _| e.table_menu_open()));
+    assert_eq!(
+        source(&editor, cx),
+        "intro\n\n| a |  | b |\n| --- | --- | ---: |\n| 1 |  | 2 |\n\nafter"
+    );
+    keys(cx, "M-z");
+    assert_eq!(
+        source(&editor, cx),
+        "intro\n\n| a | b |\n| --- | ---: |\n| 1 | 2 |\n\nafter"
+    );
+    // Row menu on the header: Delete row is disabled.
+    editor.update(cx, |e, cx| {
+        e.open_table_menu_for(table, crate::TableLine::Row(0), cx)
+    });
+    draw(cx);
+    editor.update(cx, |e, cx| {
+        e.table_menu_action(crate::TableEdit::RemoveRow, cx)
+    });
+    draw(cx);
+    assert!(editor.read_with(cx, |e, _| e.table_menu_open()));
+    assert!(source(&editor, cx).contains("| a | b |"));
+    // Escape closes it.
+    keys(cx, "escape");
+    assert!(!editor.read_with(cx, |e, _| e.table_menu_open()));
+    // Body row menu: Delete row works.
+    editor.update(cx, |e, cx| {
+        e.open_table_menu_for(table, crate::TableLine::Row(1), cx)
+    });
+    editor.update(cx, |e, cx| {
+        e.table_menu_action(crate::TableEdit::RemoveRow, cx)
+    });
+    draw(cx);
+    assert_eq!(
+        source(&editor, cx),
+        "intro\n\n| a | b |\n| --- | ---: |\n\nafter"
+    );
+}
