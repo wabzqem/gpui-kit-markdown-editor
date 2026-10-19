@@ -458,6 +458,18 @@ impl BlockEditorModel {
             return self.delete_blocks().map(|_| ());
         }
         let range = self.resolved()?;
+        // Backspace at the start of a heading: back to a paragraph, keeping
+        // the text and marks, wherever the heading sits.
+        if !forward
+            && range.is_collapsed()
+            && range.start.offset == 0
+            && matches!(
+                self.doc.kind(range.start.block),
+                Some(BlockKindData::Heading { .. })
+            )
+        {
+            return self.heading_to_paragraph(range.start.block, "heading_backspace");
+        }
         if range.is_collapsed() && self.select_adjacent_table(range.start, forward)? {
             return Ok(());
         }
@@ -603,6 +615,16 @@ impl BlockEditorModel {
     /// Enter: split the text block (in a list, a new item; in an empty item, exit or outdent).
     pub fn split_block(&mut self) -> Result<(), CommandError> {
         let range = self.resolved()?;
+        // Enter in an empty heading: a paragraph, not another heading.
+        if range.is_collapsed()
+            && matches!(
+                self.doc.kind(range.start.block),
+                Some(BlockKindData::Heading { .. })
+            )
+            && self.doc.leaf_len(range.start.block) == Some(0)
+        {
+            return self.heading_to_paragraph(range.start.block, "heading_enter");
+        }
         if range.is_collapsed() && self.exit_empty_item(range.start)? {
             return Ok(());
         }
@@ -621,6 +643,20 @@ impl BlockEditorModel {
             Ok(caret(split_at(tx, pos)?))
         })?;
         Ok(())
+    }
+
+    /// A heading becomes a paragraph in one transaction; text, marks and
+    /// the caret stay.
+    fn heading_to_paragraph(
+        &mut self,
+        block: BlockId,
+        name: &'static str,
+    ) -> Result<(), CommandError> {
+        self.transact(EditOrigin::Command(name), |tx| {
+            tx.set_kind(block, BlockKindData::Paragraph)?;
+            Ok(None)
+        })
+        .map(|_| ())
     }
 
     /// Enter in a code block inserts a newline; Enter on a trailing empty

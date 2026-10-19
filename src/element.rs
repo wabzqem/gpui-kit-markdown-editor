@@ -365,6 +365,7 @@ impl RenderOnce for BlockEditor {
             .on_action(window.listener_for(s, BlockEditorState::on_select_all))
             .on_action(window.listener_for(s, BlockEditorState::on_undo))
             .on_action(window.listener_for(s, BlockEditorState::on_redo))
+            .on_action(window.listener_for(s, BlockEditorState::on_normal_text))
             .on_action(window.listener_for(s, BlockEditorState::on_toggle_bold))
             .on_action(window.listener_for(s, BlockEditorState::on_toggle_italic))
             .on_action(window.listener_for(s, BlockEditorState::on_edit_link))

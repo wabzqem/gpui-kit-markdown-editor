@@ -35,7 +35,8 @@
 //!
 //! Keys: Enter, Backspace/Delete, arrows/Home/End (+Shift), Cmd/Ctrl+A, B, I,
 //! E, Z, Shift+Z, C, X, V, and Shift+V (plain paste); Tab/Shift+Tab indent
-//! list items. Input rules: `# `..`###### `, `- `, `* `, `+ `, `1. `.
+//! list items; Cmd/Ctrl+Alt+0 makes the block (or each selected block) a
+//! paragraph. Input rules: `# `..`###### `, `- `, `* `, `+ `, `1. `.
 //! The scroll handle is optional: without it, blocks outside the visible
 //! area are still culled, but moving the caret never scrolls (a no-op).
 

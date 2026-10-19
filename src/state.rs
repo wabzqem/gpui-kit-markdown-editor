@@ -64,6 +64,7 @@ actions!(
         SoftBreak,
         ExitBlock,
         ToggleCode,
+        NormalText,
         Indent,
         Outdent,
         Copy,
@@ -130,6 +131,8 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new(&format!("{m}-i"), ToggleItalic, ctx),
         KeyBinding::new(&format!("{m}-e"), ToggleCode, ctx),
         KeyBinding::new(&format!("{m}-k"), EditLink, ctx),
+        // "Normal text": the block (or each selected block) becomes a paragraph.
+        KeyBinding::new(&format!("{m}-alt-0"), NormalText, ctx),
         KeyBinding::new("shift-enter", SoftBreak, ctx),
         KeyBinding::new(&format!("{m}-enter"), ExitBlock, ctx),
         KeyBinding::new(&format!("{m}-c"), Copy, ctx),
@@ -1685,6 +1688,20 @@ impl BlockEditorState {
     pub(crate) fn on_redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
         self.end_composition();
         self.redo(cx);
+    }
+    pub(crate) fn on_normal_text(
+        &mut self,
+        _: &NormalText,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.readonly {
+            return;
+        }
+        self.end_composition();
+        self.model.break_coalescing();
+        let _ = self.run(EditorCommand::SetBlockKind(BlockKind::Paragraph), cx);
+        self.model.break_coalescing();
     }
     pub(crate) fn on_toggle_bold(
         &mut self,

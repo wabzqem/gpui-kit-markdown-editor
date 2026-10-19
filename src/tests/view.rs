@@ -3147,3 +3147,191 @@ fn d18_paste_ending_in_a_paragraph_into_an_empty_paragraph_leaves_no_stray(
     keys(cx, "M-v");
     assert_eq!(source(&editor, cx), "# H\n\ntail\n\n# H\n\ntail");
 }
+
+// ---- D19: getting out of a heading -------------------------------------------
+
+fn leaf_kinds(editor: &Entity<BlockEditorState>, cx: &VisualTestContext) -> Vec<String> {
+    editor.read_with(cx, |e, _| {
+        e.model()
+            .document()
+            .leaves()
+            .map(|l| format!("{:?}", l.kind()))
+            .collect()
+    })
+}
+
+#[gpui::test]
+fn d19_backspace_at_heading_start_makes_a_paragraph_with_undo(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "intro\n\n## Title");
+    caret_at(&editor, cx, 1, 0);
+    keys(cx, "backspace");
+    assert_eq!(source(&editor, cx), "intro\n\nTitle");
+    // Not a join: the paragraph stays separate and the caret stays put.
+    assert_eq!(
+        caret_text_and_kind(&editor, cx),
+        ("Title".to_string(), Some(BlockKind::Paragraph))
+    );
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "intro\n\n## Title");
+    keys(cx, "M-shift-z");
+    assert_eq!(source(&editor, cx), "intro\n\nTitle");
+    // A second Backspace is now an ordinary join.
+    keys(cx, "backspace");
+    assert_eq!(source(&editor, cx), "introTitle");
+}
+
+#[gpui::test]
+fn d19_backspace_in_the_first_block_heading_keeps_marks(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "# Hello **bold** and *it* `c`\n\nnext");
+    caret_at(&editor, cx, 0, 0);
+    keys(cx, "backspace");
+    assert_eq!(source(&editor, cx), "Hello **bold** and *it* `c`\n\nnext");
+    type_text(cx, "Z");
+    assert_eq!(source(&editor, cx), "ZHello **bold** and *it* `c`\n\nnext");
+    keys(cx, "M-z M-z");
+    assert_eq!(source(&editor, cx), "# Hello **bold** and *it* `c`\n\nnext");
+}
+
+#[gpui::test]
+fn d19_backspace_at_heading_start_after_a_table_keeps_the_table(cx: &mut TestAppContext) {
+    let table = "| a | b |\n| --- | --- |\n| 1 | 2 |";
+    let (editor, cx) = open(cx, &format!("{table}\n\n# H"));
+    let last = editor.read_with(cx, |e, _| e.model().document().leaves().count() - 1);
+    caret_at(&editor, cx, last, 0);
+    keys(cx, "backspace");
+    assert_eq!(source(&editor, cx), format!("{table}\n\nH"));
+    // The table was neither selected nor deleted; the caret stays in the text.
+    assert_eq!(
+        caret_text_and_kind(&editor, cx),
+        ("H".to_string(), Some(BlockKind::Paragraph))
+    );
+}
+
+#[gpui::test]
+fn d19_backspace_at_heading_start_inside_a_quote(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "> # H\n>\n> text");
+    caret_at(&editor, cx, 0, 0);
+    keys(cx, "backspace");
+    assert_eq!(source(&editor, cx), "> H\n>\n> text");
+}
+
+#[gpui::test]
+fn d19_backspace_mid_heading_and_other_blocks_are_unchanged(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "## Title\n\ntext");
+    caret_at(&editor, cx, 0, 3);
+    keys(cx, "backspace");
+    assert_eq!(source(&editor, cx), "## Tile\n\ntext");
+    // A paragraph at the start of the document: nothing happens.
+    caret_at(&editor, cx, 1, 0);
+    keys(cx, "backspace");
+    assert_eq!(source(&editor, cx), "## Tiletext");
+    let (editor, cx) = open(cx, "plain");
+    caret_at(&editor, cx, 0, 0);
+    keys(cx, "backspace");
+    assert_eq!(source(&editor, cx), "plain");
+    // A selection starting in a heading is an ordinary range delete.
+    let (editor, cx) = open(cx, "# Head\n\nbody");
+    select_in(&editor, cx, (0, 0), (0, 2));
+    keys(cx, "backspace");
+    assert_eq!(source(&editor, cx), "# ad\n\nbody");
+}
+
+#[gpui::test]
+fn d19_enter_in_an_empty_heading_makes_a_paragraph(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "");
+    type_text(cx, "## ");
+    assert_eq!(
+        caret_text_and_kind(&editor, cx),
+        (String::new(), Some(BlockKind::Heading { level: 2 }))
+    );
+    keys(cx, "enter");
+    assert_eq!(
+        caret_text_and_kind(&editor, cx),
+        (String::new(), Some(BlockKind::Paragraph))
+    );
+    assert_eq!(leaf_kinds(&editor, cx).len(), 1);
+    type_text(cx, "x");
+    assert_eq!(source(&editor, cx), "x");
+    // Undo restores the empty heading in one step.
+    keys(cx, "M-z M-z");
+    assert_eq!(
+        caret_text_and_kind(&editor, cx),
+        (String::new(), Some(BlockKind::Heading { level: 2 }))
+    );
+}
+
+#[gpui::test]
+fn d19_enter_in_an_empty_heading_between_blocks(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "a\n\n# \n\nb");
+    let kinds = leaf_kinds(&editor, cx);
+    assert_eq!(kinds.len(), 3, "{kinds:?}");
+    caret_at(&editor, cx, 1, 0);
+    keys(cx, "enter");
+    let kinds = leaf_kinds(&editor, cx);
+    assert_eq!(kinds.len(), 3, "{kinds:?}");
+    assert_eq!(
+        caret_text_and_kind(&editor, cx),
+        (String::new(), Some(BlockKind::Paragraph))
+    );
+}
+
+#[gpui::test]
+fn d19_enter_in_a_non_empty_heading_is_unchanged(cx: &mut TestAppContext) {
+    // End of a heading: a paragraph below.
+    let (editor, cx) = open(cx, "# Title");
+    caret_at(&editor, cx, 0, 5);
+    keys(cx, "enter");
+    assert_eq!(
+        caret_text_and_kind(&editor, cx),
+        (String::new(), Some(BlockKind::Paragraph))
+    );
+    type_text(cx, "body");
+    assert_eq!(source(&editor, cx), "# Title\n\nbody");
+    // Mid-heading: the tail becomes the next block, as before.
+    let (editor, cx) = open(cx, "# Title");
+    caret_at(&editor, cx, 0, 2);
+    keys(cx, "enter");
+    assert_eq!(source(&editor, cx).matches("Ti").count(), 1);
+    assert_eq!(leaf_kinds(&editor, cx).len(), 2);
+    // Start of a non-empty heading: an empty block above, heading stays.
+    let (editor, cx) = open(cx, "# Title");
+    caret_at(&editor, cx, 0, 0);
+    keys(cx, "enter");
+    assert_eq!(leaf_kinds(&editor, cx).len(), 2);
+    assert!(
+        source(&editor, cx).ends_with("# Title"),
+        "{}",
+        source(&editor, cx)
+    );
+}
+
+#[gpui::test]
+fn d19_normal_text_shortcut_through_the_key_path(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "# One *x*\n\n### Two\n\nthree");
+    caret_at(&editor, cx, 0, 3);
+    keys(cx, "M-alt-0");
+    assert_eq!(source(&editor, cx), "One *x*\n\n### Two\n\nthree");
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "# One *x*\n\n### Two\n\nthree");
+    // On a paragraph: nothing to do, and no undo step is added.
+    caret_at(&editor, cx, 2, 1);
+    keys(cx, "M-alt-0");
+    assert_eq!(source(&editor, cx), "# One *x*\n\n### Two\n\nthree");
+    // Each block of a selection becomes a paragraph, in one undo step.
+    select_in(&editor, cx, (0, 1), (2, 2));
+    keys(cx, "M-alt-0");
+    assert_eq!(source(&editor, cx), "One *x*\n\nTwo\n\nthree");
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "# One *x*\n\n### Two\n\nthree");
+}
+
+#[gpui::test]
+fn d19_normal_text_command_matches_the_shortcut(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "- ## in a list\n\n> ## quoted");
+    select_in(&editor, cx, (0, 0), (1, 3));
+    editor.update(cx, |e, cx| {
+        e.run(crate::EditorCommand::SetBlockKind(BlockKind::Paragraph), cx)
+            .unwrap();
+    });
+    assert_eq!(source(&editor, cx), "- in a list\n\n> quoted");
+}

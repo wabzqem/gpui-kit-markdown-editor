@@ -504,6 +504,39 @@ mod tests {
     }
 
     #[gpui::test]
+    fn normal_text_shortcut_and_text_button_leave_a_heading(cx: &mut TestAppContext) {
+        let (story, cx) = open(cx, "# Title\n\nbody");
+        caret_in_leaf(&story, cx, 0, 2);
+        // The same init order an outside consumer uses: the binding works.
+        cx.simulate_keystrokes(if cfg!(target_os = "macos") {
+            "cmd-alt-0"
+        } else {
+            "ctrl-alt-0"
+        });
+        settle(cx);
+        story.read_with(cx, |story, cx| {
+            assert_eq!(story.editor.read(cx).source(), "Title\n\nbody");
+            assert!(!story.markdown.contains("# Title"), "{}", story.markdown);
+        });
+        // Backspace at the start of a heading does the same.
+        story.update(cx, |story, cx| {
+            story.editor.update(cx, |e, cx| {
+                e.run(
+                    EditorCommand::SetBlockKind(BlockKind::Heading { level: 2 }),
+                    cx,
+                )
+                .unwrap();
+            })
+        });
+        caret_in_leaf(&story, cx, 0, 0);
+        cx.simulate_keystrokes("backspace");
+        settle(cx);
+        story.read_with(cx, |story, cx| {
+            assert_eq!(story.editor.read(cx).source(), "Title\n\nbody");
+        });
+    }
+
+    #[gpui::test]
     fn link_hover_and_click_events_reach_the_story(cx: &mut TestAppContext) {
         let (story, cx) = open(cx, "see [site](https://a.example)");
         story.update(cx, |story, cx| {

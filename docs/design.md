@@ -620,6 +620,12 @@ Block rules fire only at the start of a paragraph. An empty list turns them all 
 - *Untagged text and Cmd/Ctrl+Shift+V:* unchanged (the conservative import; raw text).
 - *Tradeoffs:* a copy that loses its metadata pastes through the conservative import, which still parses multi-block Markdown as blocks. Pasting a list straight after a list joins them (list normalization). Whole-table copy can copy more than was selected.
 
+**D19. Getting out of a heading.** (Richard, 19 Oct 2026.)
+- *Backspace* with a collapsed caret at offset 0 of a heading turns it into a paragraph (text and marks kept, caret stays, one undo step: `heading_backspace`). It applies wherever the heading sits: first block, after a table, inside a quote or list item. It runs before the table-select, quote-lift and join rules, so a second Backspace is the ordinary join. Ranges and mid-heading Backspace are unchanged.
+- *Enter* in an empty heading turns it into a paragraph (`heading_enter`), not a new heading. Enter at the end of a non-empty heading still adds a paragraph below; mid-heading and start-of-heading are unchanged.
+- *Normal text:* Cmd+Alt+0 (macOS) / Ctrl+Alt+0 (elsewhere), action `NormalText`, runs the existing `SetBlockKind(Paragraph)` for the block or every block of the selection (the story's Text button runs the same command). It is bound in `init` with the other editor bindings under the `BlockEditor` key context, so outside consumers get it from the same `init` call.
+- *Not added:* H1-H3 shortcuts (headings come from `# ` input rules and the toolbar/commands).
+
 **Caret (after main #3515):** the default `caret_width` is the input's shared `CURSOR_WIDTH` (1px on every platform), and the editor paints its caret snapped to whole device pixels with the input's `snap_caret_to_device_pixels`. Callers can still override it with `with_caret_width`.
 
 **Decisions taken during the UI spike (answered by Richard, 14 Oct 2026):**
