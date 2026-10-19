@@ -8,7 +8,8 @@ links, and bold/italic/strike/inline-code marks. It has cross-block selection,
 IME, undo/redo, input rules (`# `, `- `, ```` ``` ````), copy/paste as Markdown,
 and culling of off-screen blocks.
 
-![The example app](docs/screenshot.png)
+<img width="826" height="418" alt="image" src="https://github.com/user-attachments/assets/27ca3783-93b6-4acb-a17e-8a111606d44b" />
+
 
 ## Usage
 
