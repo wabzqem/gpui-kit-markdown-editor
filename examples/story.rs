@@ -65,7 +65,12 @@ impl BlockEditorStory {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let scroll = ScrollHandle::new();
         let editor = cx.new(|cx| {
-            let mut state = BlockEditorState::new(window, cx).with_source(SAMPLE);
+            // STORY_MD=path loads that file instead of the sample (manual QA).
+            let source = std::env::var("STORY_MD")
+                .ok()
+                .and_then(|path| std::fs::read_to_string(path).ok())
+                .unwrap_or_else(|| SAMPLE.to_string());
+            let mut state = BlockEditorState::new(window, cx).with_source(&source);
             state.set_scroll_handle(scroll.clone());
             state
         });

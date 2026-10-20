@@ -8,18 +8,15 @@ use gpui::{Bounds, Context, Pixels, Point, point, px, size};
 use super::{
     id::BlockId,
     state::BlockEditorState,
-    table::{TableEdit, TableLine, grid},
+    table::{TableEdit, TableLine},
 };
 use gpui_kit::base::text::editor_host::ColumnAlign;
 
-/// A column's x span or a row's y span.
-type Band = (Pixels, Pixels);
-
 /// Extra reach around a table where its grips still show.
 const REACH: f32 = 28.;
-/// Row grips sit this far left of the cell text, outside the table's
-/// block-handle strip (`block_handle_at`, the 16px next to the table).
-const ROW_GRIP_X: f32 = 22.;
+/// Row grips sit this far left of the table frame, left of the strip that
+/// node-selects the table (`block_handle_at`, the 16px left of the cell text).
+const ROW_GRIP_X: f32 = 8.;
 
 /// The open grip menu.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,58 +34,16 @@ pub(crate) enum MenuItem {
 }
 
 impl BlockEditorState {
-    /// Column and row bands of a laid-out table: `(start, end)` x ranges per
-    /// column and y ranges per row, from the header / first-column cells.
-    fn table_bands(&self, table: BlockId, bounds: Bounds<Pixels>) -> (Vec<Band>, Vec<Band>) {
-        let frame = self.frame.borrow();
-        let grid = grid(&self.model.doc, table);
-        let lefts: Vec<Pixels> = grid
-            .first()
-            .map(|row| {
-                row.iter()
-                    .filter_map(|c| frame.leaf(*c).map(|l| l.bounds().left()))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let tops: Vec<Pixels> = grid
-            .iter()
-            .filter_map(|row| {
-                row.first()
-                    .and_then(|c| frame.leaf(*c))
-                    .map(|l| l.bounds().top())
-            })
-            .collect();
-        let bands = |starts: &[Pixels], lo: Pixels, hi: Pixels| {
-            (0..starts.len())
-                .map(|i| {
-                    let a = if i == 0 { lo } else { starts[i] };
-                    let b = starts.get(i + 1).copied().unwrap_or(hi);
-                    (a, b)
-                })
-                .collect::<Vec<_>>()
-        };
-        (
-            bands(&lefts, bounds.left(), bounds.right()),
-            bands(&tops, bounds.top(), bounds.bottom()),
-        )
-    }
-
     /// The grips to show for the pointer at `at`: the hovered column's grip
     /// above its header cell and the hovered row's grip at its left edge.
-    /// Public for hosts and UI tests.
+    /// Column and row boxes come from the frame's rebuilt table grid
+    /// (`FrameLayout::layout_tables`), so they match the drawn cells for
+    /// every alignment, after scrolling and resizing.
     pub fn table_grips_at(&self, at: Point<Pixels>) -> Vec<(BlockId, TableLine, Bounds<Pixels>)> {
-        let (tables, content) = {
-            let frame = self.frame.borrow();
-            (frame.tables.clone(), frame.content)
-        };
+        let frame = self.frame.borrow();
         let mut out = Vec::new();
-        for (table, mut b) in tables {
-            // A table is as wide as the content area.
-            if let Some(content) = content
-                && content.right() > b.right()
-            {
-                b.size.width = content.right() - b.left();
-            }
+        for g in &frame.grids {
+            let b = g.bounds;
             let reach = px(REACH);
             if at.x < b.left() - reach
                 || at.x >= b.right() + px(8.)
@@ -97,27 +52,35 @@ impl BlockEditorState {
             {
                 continue;
             }
-            let (cols, rows) = self.table_bands(table, b);
             let x = at.x.clamp(b.left(), b.right() - px(1.));
             let y = at.y.clamp(b.top(), b.bottom() - px(1.));
-            if let Some(c) = cols.iter().position(|(a, z)| x >= *a && x < *z) {
-                let (a, z) = cols[c];
-                let mid = (a + z) / 2.;
+            let col = g
+                .cols
+                .iter()
+                .position(|(l, r)| x >= *l && x < *r)
+                .or_else(|| (x >= b.right() - px(2.)).then(|| g.cols.len() - 1))
+                .or_else(|| (x < g.cols[0].0).then_some(0));
+            if let Some(c) = col {
+                let (l, r) = g.cols[c];
+                let mid = (l + r) / 2.;
                 out.push((
-                    table,
+                    g.table,
                     TableLine::Column(c),
-                    Bounds::new(
-                        point(mid - px(8.), b.top() - px(12.)),
-                        size(px(16.), px(4.)),
-                    ),
+                    Bounds::new(point(mid - px(8.), b.top() - px(8.)), size(px(16.), px(4.))),
                 ));
             }
-            if let Some(r) = rows.iter().position(|(a, z)| y >= *a && y < *z) {
-                let (a, z) = rows[r];
-                let h = px(16.).min(z - a);
-                let mid = (a + z) / 2.;
+            let row = g
+                .rows
+                .iter()
+                .position(|(t, bt)| y >= *t && y < *bt)
+                .or_else(|| (y >= b.bottom() - px(2.)).then(|| g.rows.len() - 1))
+                .or_else(|| (y < g.rows[0].0).then_some(0));
+            if let Some(r) = row {
+                let (t, bt) = g.rows[r];
+                let h = px(16.).min(bt - t);
+                let mid = (t + bt) / 2.;
                 out.push((
-                    table,
+                    g.table,
                     TableLine::Row(r),
                     Bounds::new(
                         point(b.left() - px(ROW_GRIP_X), mid - h / 2.),
@@ -259,8 +222,10 @@ impl BlockEditorState {
             .into_iter()
             .map(|(t, l, _)| (t, l))
             .collect();
-        if hovered != self.table_hover {
+        let on_grip = self.table_grip_hit(at).is_some();
+        if hovered != self.table_hover || on_grip != self.grip_hover {
             self.table_hover = hovered;
+            self.grip_hover = on_grip;
             cx.notify();
         }
     }

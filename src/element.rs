@@ -330,7 +330,9 @@ impl RenderOnce for BlockEditor {
             })
             .key_context(self.state.read(cx).key_context())
             .track_focus(&focus)
-            .cursor(if self.state.read(cx).pointer_hand {
+            .cursor(if self.state.read(cx).grip_hover {
+                CursorStyle::OpenHand
+            } else if self.state.read(cx).pointer_hand {
                 CursorStyle::PointingHand
             } else {
                 CursorStyle::IBeam
@@ -527,6 +529,27 @@ impl Element for EditorRoot {
                 &self.snapshot.tables,
             );
             frame.content = Some(self.content_bounds.get());
+            {
+                let state = self.state.read(cx);
+                let doc = &state.model.doc;
+                let shapes: Vec<super::frame::TableShape> = self
+                    .snapshot
+                    .tables
+                    .iter()
+                    .map(|(table, _)| super::frame::TableShape {
+                        table: *table,
+                        grid: super::table::grid(doc, *table),
+                        aligns: match doc.kind(*table) {
+                            Some(super::kind::BlockKindData::Table { aligns }) => aligns.clone(),
+                            _ => Vec::new(),
+                        },
+                    })
+                    .collect();
+                // gpui-kit's cell padding is `px_3`: 0.75rem.
+                let pad = window.rem_size() * 0.75;
+                let right = frame.content.map(|c| c.right());
+                frame.layout_tables(&shapes, pad, right);
+            }
             *self.state.read(cx).frame.borrow_mut() = frame;
             let mask = window.content_mask().bounds;
             let content = self.content_bounds.get();

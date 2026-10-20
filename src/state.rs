@@ -321,6 +321,8 @@ pub struct BlockEditorState {
     pub(crate) table_menu: Option<super::table_ui::TableMenu>,
     /// The table grips the pointer shows (to repaint on change).
     pub(crate) table_hover: Vec<(BlockId, crate::TableLine)>,
+    /// The pointer is on a table grip (grab cursor).
+    pub(crate) grip_hover: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -385,6 +387,7 @@ impl BlockEditorState {
             pointer_hand: false,
             table_menu: None,
             table_hover: Vec::new(),
+            grip_hover: false,
             _subscriptions: subscriptions,
         }
     }

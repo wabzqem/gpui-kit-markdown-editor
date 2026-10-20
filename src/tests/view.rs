@@ -3614,3 +3614,238 @@ fn d20_grips_show_on_hover_and_a_click_opens_the_menu(cx: &mut TestAppContext) {
         "intro\n\n| a | b |\n| --- | ---: |\n\nafter"
     );
 }
+
+// ---- D20 QA: aligned cells and grip geometry ---------------------------------
+
+const ALIGNED: &str = "| Left | Centre | Right | None |\n| :--- | :---: | ---: | --- |\n| a | centred text | 42 | plain |\n| a longer left cell whose text should wrap onto a second line in the column | x | 1234567 | y |";
+
+/// Leaf `ix`: its text bounds, unshifted text width, and caret x at 0 / end.
+fn cell_carets(
+    editor: &Entity<BlockEditorState>,
+    cx: &VisualTestContext,
+    ix: usize,
+) -> (gpui::Bounds<Pixels>, Pixels, Pixels) {
+    editor.read_with(cx, |e, _| {
+        let f = e.frame.borrow();
+        let leaf = &f.leaves[ix];
+        (
+            leaf.bounds(),
+            leaf.caret_point(0).x,
+            leaf.caret_point(leaf.info.len).x,
+        )
+    })
+}
+
+#[gpui::test]
+fn d20_caret_x_follows_cell_alignment(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, ALIGNED);
+    // Row 1: a (Left), "centred text" (Centre), 42 (Right), plain (None).
+    let (b, x0, x1) = cell_carets(&editor, cx, 4);
+    assert_eq!(x0, b.left(), "left");
+    let (b, x0, x1c) = cell_carets(&editor, cx, 5);
+    let w = x1c - x0;
+    assert!(
+        (x0 - (b.left() + (b.size.width - w) / 2.)).abs() < px(0.6),
+        "centre"
+    );
+    let (b, x0, x1r) = cell_carets(&editor, cx, 6);
+    assert!(
+        (x1r - b.right()).abs() < px(0.6),
+        "right end at the right edge"
+    );
+    assert!(x0 > b.left(), "right start shifted");
+    let (b, x0n, _) = cell_carets(&editor, cx, 7);
+    assert_eq!(x0n, b.left(), "none");
+    let _ = x1;
+}
+
+#[gpui::test]
+fn d20_clicks_in_aligned_cells_land_where_the_text_is(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, ALIGNED);
+    // Click just right of the "42" text: caret after "42" in that cell.
+    let (b, _, end) = cell_carets(&editor, cx, 6);
+    let y = b.center().y;
+    cx.simulate_click(gpui::point(end - px(1.), y), Modifiers::none());
+    draw(cx);
+    let id42 = editor.read_with(cx, |e, _| e.frame.borrow().leaves[6].info.block);
+    assert_eq!(
+        editor.read_with(cx, |e, _| e.model().caret()),
+        Some(BlockPosition::new(id42, 2))
+    );
+    // Click in the empty space left of "42" (the cell's slack and padding):
+    // still that cell, at its start.
+    let cells = editor.read_with(cx, |e, _| e.frame.borrow().cell_boxes.get(&id42).copied());
+    let cell = cells.unwrap();
+    cx.simulate_click(gpui::point(cell.left() + px(3.), y), Modifiers::none());
+    draw(cx);
+    assert_eq!(
+        editor.read_with(cx, |e, _| e.model().caret()),
+        Some(BlockPosition::new(id42, 0))
+    );
+    // The centred cell: a click on its first glyph's left half is offset 0.
+    let (b5, x0, _) = cell_carets(&editor, cx, 5);
+    cx.simulate_click(gpui::point(x0 + px(1.), b5.center().y), Modifiers::none());
+    draw(cx);
+    let idc = editor.read_with(cx, |e, _| e.frame.borrow().leaves[5].info.block);
+    assert_eq!(
+        editor.read_with(cx, |e, _| e.model().caret()),
+        Some(BlockPosition::new(idc, 0))
+    );
+}
+
+/// Every probe point inside the table: the hovered column / row (grips)
+/// match the cell a click there would hit, and grips sit centred above the
+/// column / beside the row.
+fn assert_grips_match_cells(editor: &Entity<BlockEditorState>, cx: &VisualTestContext, what: &str) {
+    editor.read_with(cx, |e, _| {
+        let f = e.frame.borrow();
+        assert!(!f.grids.is_empty(), "{what}: a table grid");
+        let g = f.grids[0].clone();
+        // Columns and rows tile the table.
+        for w in g.cols.windows(2) {
+            assert!(
+                (w[0].1 - w[1].0).abs() < px(1.5),
+                "{what}: columns touch {:?}",
+                g.cols
+            );
+        }
+        for w in g.rows.windows(2) {
+            assert!(
+                (w[0].1 - w[1].0).abs() < px(1.5),
+                "{what}: rows touch {:?}",
+                g.rows
+            );
+        }
+        let grid = crate::table::grid(&e.model.doc, g.table);
+        drop(f);
+        for (r, (t, bt)) in g.rows.iter().enumerate() {
+            for (c, (l, rt)) in g.cols.iter().enumerate() {
+                for fx in [0.1f32, 0.5, 0.9] {
+                    let at = gpui::point(*l + (*rt - *l) * fx, (*t + *bt) / 2.);
+                    let grips = e.table_grips_at(at);
+                    assert_eq!(grips.len(), 2, "{what}");
+                    assert_eq!(grips[0].1, crate::TableLine::Column(c), "{what} at {at:?}");
+                    assert_eq!(grips[1].1, crate::TableLine::Row(r), "{what} at {at:?}");
+                    let mid = (*l + *rt) / 2.;
+                    assert!(
+                        (grips[0].2.center().x - mid).abs() < px(1.),
+                        "{what}: column grip centred"
+                    );
+                    assert!(
+                        grips[0].2.bottom() <= g.bounds.top(),
+                        "{what}: column grip above"
+                    );
+                    assert!(
+                        grips[1].2.right() <= g.bounds.left(),
+                        "{what}: row grip left"
+                    );
+                    let hit = e.frame.borrow().hit_test(at).unwrap();
+                    assert_eq!(hit.block, grid[r][c], "{what}: hit test at {at:?}");
+                }
+            }
+        }
+    });
+}
+
+#[gpui::test]
+fn d20_grips_and_hits_match_cells_for_aligned_uneven_wrapped_tables(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, ALIGNED);
+    assert_grips_match_cells(&editor, cx, "aligned + wrapped");
+    let (editor, cx) = open(
+        cx,
+        "| k | value |\n| --- | ---: |\n| one | 1 |\n| two | 22 |",
+    );
+    assert_grips_match_cells(&editor, cx, "left + right, uneven");
+    let (editor, cx) = open(
+        cx,
+        "| a | b | c |\n| :---: | :---: | :---: |\n| 1 | 22 | 333 |",
+    );
+    assert_grips_match_cells(&editor, cx, "all centred");
+    // After inserting and deleting columns the grid follows.
+    caret_at(&editor, cx, 3, 0);
+    keys(cx, "M-alt-right");
+    assert_grips_match_cells(&editor, cx, "column inserted");
+    keys(cx, "M-alt-left");
+    assert_grips_match_cells(&editor, cx, "two inserted");
+    let table = editor.read_with(cx, |e, _| e.frame.borrow().grids[0].table);
+    editor.update(cx, |e, _| {
+        e.model
+            .select_table_line(table, crate::TableLine::Column(0))
+            .unwrap();
+    });
+    keys(cx, "M-alt-backspace");
+    assert_grips_match_cells(&editor, cx, "column deleted");
+}
+
+struct Resizable(Entity<BlockEditorState>, gpui::ScrollHandle, f32);
+
+impl Render for Resizable {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("scroller")
+            .w(px(self.2))
+            .h(px(200.))
+            .overflow_y_scroll()
+            .track_scroll(&self.1)
+            .child(BlockEditor::new(&self.0))
+    }
+}
+
+#[gpui::test]
+fn d20_grips_follow_resize_and_scroll(cx: &mut TestAppContext) {
+    cx.update(crate::init_for_tests);
+    let source = format!(
+        "{}\n\n{ALIGNED}\n\n{}",
+        "para\n\n".repeat(12),
+        "tail\n\n".repeat(12)
+    );
+    let scroll = gpui::ScrollHandle::new();
+    let s2 = scroll.clone();
+    let (root, cx) = cx.add_window_view(move |window, cx| {
+        let editor = cx.new(|cx| BlockEditorState::new(window, cx).with_source(&source));
+        Resizable(editor, s2, 700.)
+    });
+    let editor = root.read_with(cx, |r, _| r.0.clone());
+    draw(cx);
+    // Scroll the table into view, then check.
+    scroll.set_offset(gpui::point(px(0.), px(-300.)));
+    draw(cx);
+    draw(cx);
+    assert_grips_match_cells(&editor, cx, "scrolled");
+    let top_before = editor.read_with(cx, |e, _| e.frame.borrow().grids[0].bounds.top());
+    scroll.set_offset(gpui::point(px(0.), px(-340.)));
+    draw(cx);
+    draw(cx);
+    let top_after = editor.read_with(cx, |e, _| e.frame.borrow().grids[0].bounds.top());
+    assert!(
+        (top_before - top_after - px(40.)).abs() < px(1.),
+        "{top_before:?} {top_after:?}"
+    );
+    assert_grips_match_cells(&editor, cx, "scrolled further");
+    root.update(cx, |r, cx| {
+        r.2 = 420.;
+        cx.notify();
+    });
+    draw(cx);
+    draw(cx);
+    assert_grips_match_cells(&editor, cx, "narrower window");
+}
+
+#[gpui::test]
+fn d20_grab_cursor_over_a_grip(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, ALIGNED);
+    let over = editor.read_with(cx, |e, _| {
+        let g = e.frame.borrow().grids[0].clone();
+        gpui::point(
+            (g.cols[2].0 + g.cols[2].1) / 2.,
+            (g.rows[1].0 + g.rows[1].1) / 2.,
+        )
+    });
+    cx.simulate_mouse_move(over, None, Modifiers::none());
+    draw(cx);
+    assert!(!editor.read_with(cx, |e, _| e.grip_hover));
+    let grip = editor.read_with(cx, |e, _| e.table_grips_at(over)[0].2);
+    cx.simulate_mouse_move(grip.center(), None, Modifiers::none());
+    draw(cx);
+    assert!(editor.read_with(cx, |e, _| e.grip_hover));
+}
