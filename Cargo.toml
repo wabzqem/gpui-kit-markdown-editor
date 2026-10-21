@@ -5,8 +5,18 @@ edition = "2024"
 description = "A block-based WYSIWYG Markdown editor for GPUI, built on gpui-kit's editor host API."
 license = "Apache-2.0"
 repository = "https://github.com/wabzqem/gpui-kit-markdown-editor"
+readme = "README.md"
 keywords = ["gpui", "markdown", "editor", "wysiwyg"]
-publish = false
+categories = ["gui", "text-editors"]
+include = [
+    "/src",
+    "/examples",
+    "/tests/fixtures",
+    "/docs/*.md",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE-APACHE",
+]
 
 [lib]
 name = "markdown_editor"
