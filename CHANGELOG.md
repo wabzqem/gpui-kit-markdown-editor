@@ -5,7 +5,7 @@ All notable changes to this crate are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Design decisions (D1-D22) are in
 [`docs/design.md`](docs/design.md).
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-21
 
 First release. A block-based WYSIWYG Markdown editor for GPUI, rendered
 through gpui-kit 0.8's editor host API (`BlockNode` trees in, leaf geometry
