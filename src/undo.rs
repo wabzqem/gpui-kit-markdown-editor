@@ -12,6 +12,8 @@ pub(crate) enum EditIntent {
     Typing,
     Backspace,
     DeleteForward,
+    WordBackspace,
+    WordDelete,
     Atomic,
 }
 
@@ -21,6 +23,8 @@ impl From<EditOrigin> for EditIntent {
             EditOrigin::Typing => Self::Typing,
             EditOrigin::Backspace => Self::Backspace,
             EditOrigin::DeleteForward => Self::DeleteForward,
+            EditOrigin::WordBackspace => Self::WordBackspace,
+            EditOrigin::WordDelete => Self::WordDelete,
             _ => Self::Atomic,
         }
     }

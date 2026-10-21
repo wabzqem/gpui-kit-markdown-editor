@@ -4145,3 +4145,46 @@ fn existing_home_end_bindings_cover_line_motion(cx: &mut TestAppContext) {
     keys(cx, "home");
     assert_eq!(caret_pos(&editor, cx), (0, 0));
 }
+
+/// D21 review: word deletes coalesce with each other, never with plain
+/// Backspace / Delete.
+#[gpui::test]
+fn word_deletes_do_not_coalesce_with_plain_deletes(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "one two three four");
+    caret_at(&editor, cx, 0, 18);
+    keys(
+        cx,
+        &format!("backspace {WD}-backspace {WD}-backspace backspace"),
+    );
+    assert_eq!(source(&editor, cx), "one two");
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "one two ");
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "one two three fou");
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "one two three four");
+
+    let (editor, cx) = open(cx, "one two three");
+    caret_at(&editor, cx, 0, 0);
+    keys(cx, &format!("delete {WD}-delete"));
+    assert_eq!(source(&editor, cx), " two three");
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "ne two three");
+}
+
+#[cfg(not(target_os = "macos"))]
+#[gpui::test]
+fn ctrl_up_and_down_move_by_paragraph(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "ab\n\ncd");
+    caret_at(&editor, cx, 0, 1);
+    keys(cx, "ctrl-down ctrl-down");
+    assert_eq!(caret_pos(&editor, cx), (1, 2));
+    keys(cx, "ctrl-up");
+    assert_eq!(caret_pos(&editor, cx), (1, 0));
+    keys(cx, "ctrl-shift-up");
+    assert_eq!(caret_pos(&editor, cx), (0, 0));
+    editor.read_with(cx, |e, _| match e.selection() {
+        BlockSelection::Text { anchor, head } => assert_ne!(anchor, head),
+        other => panic!("{other:?}"),
+    });
+}

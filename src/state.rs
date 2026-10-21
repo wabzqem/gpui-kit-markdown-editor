@@ -172,6 +172,16 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new("alt-shift-up", SelectParagraphStart, ctx),
         #[cfg(target_os = "macos")]
         KeyBinding::new("alt-shift-down", SelectParagraphEnd, ctx),
+        // Elsewhere paragraph motion is Ctrl+Up/Down (Ctrl+Alt+arrows stay
+        // the table keys, Ctrl+Home/End the document edges).
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-up", MoveParagraphStart, ctx),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-down", MoveParagraphEnd, ctx),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-shift-up", SelectParagraphStart, ctx),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-shift-down", SelectParagraphEnd, ctx),
         KeyBinding::new("tab", Indent, ctx),
         KeyBinding::new("shift-tab", Outdent, ctx),
         KeyBinding::new(&format!("{m}-a"), SelectAll, ctx),
@@ -1299,6 +1309,11 @@ impl BlockEditorState {
                 self.edit(origin, |m| m.delete(forward), cx);
             }
         } else {
+            let origin = if forward {
+                EditOrigin::WordDelete
+            } else {
+                EditOrigin::WordBackspace
+            };
             self.edit(origin, |m| m.delete_span(target, head, forward), cx);
         }
         if line {

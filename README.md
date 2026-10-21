@@ -112,13 +112,13 @@ macOS, Ctrl+Backspace / Ctrl+Delete elsewhere (word motion is Option+arrows /
 Ctrl+arrows). macOS also has Cmd+Backspace / Cmd+Delete (delete to the start /
 end of the visual line; in a code block, of the code line), Cmd+Left/Right and
 Shift (visual line start / end, like Home/End), Option+Up/Down and Shift (block
-start / end), and the Cocoa emacs keys Ctrl+A/E (and Shift), Ctrl+D/H (delete
+start / end; Ctrl+Up/Down and Shift on Windows/Linux), and the Cocoa emacs keys Ctrl+A/E (and Shift), Ctrl+D/H (delete
 forward / back) and Ctrl+K (delete to the line end; no kill ring). With a
 selection, every delete key removes just the selection. At the start of a
 block, word and line deletes act as Backspace (join, lift, heading to
 paragraph); at its end, forward ones act as Delete. In a table cell they stay
 in the cell and do nothing at its edges. A run of word deletes is one undo
-step; a line delete is its own.
+step (separate from plain Backspace/Delete); a line delete is its own.
 
 ## Known limitations
 

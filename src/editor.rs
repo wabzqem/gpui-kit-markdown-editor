@@ -117,7 +117,7 @@ impl BlockEditorModel {
         self.selection_epoch += 1;
         self.stored_marks = None;
         self.selection = selection;
-        self.delete(forward)
+        self.delete_as(forward, true)
     }
 
     /// The caret (head of a text selection); `None` for a block selection.

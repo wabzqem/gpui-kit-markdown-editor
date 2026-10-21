@@ -449,6 +449,12 @@ impl BlockEditorModel {
 
     /// Backspace (`forward == false`) or Delete: a grapheme, the selection, a join with the neighbouring block, or (next to a table) select the table.
     pub fn delete(&mut self, forward: bool) -> Result<(), CommandError> {
+        self.delete_as(forward, false)
+    }
+
+    /// [`Self::delete`]; `word` records it as a word delete (D21), which
+    /// coalesces only with other word deletes.
+    pub(crate) fn delete_as(&mut self, forward: bool, word: bool) -> Result<(), CommandError> {
         if self.selected_cells().is_some() {
             return self
                 .clear_cells(EditOrigin::Command("clear_cells"))
@@ -508,10 +514,11 @@ impl BlockEditorModel {
             }
             return Ok(());
         }
-        let origin = if forward {
-            EditOrigin::DeleteForward
-        } else {
-            EditOrigin::Backspace
+        let origin = match (forward, word) {
+            (true, true) => EditOrigin::WordDelete,
+            (false, true) => EditOrigin::WordBackspace,
+            (true, false) => EditOrigin::DeleteForward,
+            (false, false) => EditOrigin::Backspace,
         };
         self.transact(origin, |tx| {
             if !range.is_collapsed() {

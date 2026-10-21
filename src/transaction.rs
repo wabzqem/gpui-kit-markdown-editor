@@ -16,6 +16,10 @@ pub enum EditOrigin {
     Typing,
     Backspace,
     DeleteForward,
+    /// A word delete backwards (D21); coalesces only with word deletes.
+    WordBackspace,
+    /// A word delete forwards (D21); coalesces only with word deletes.
+    WordDelete,
     Ime,
     Paste,
     Cut,
