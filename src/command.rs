@@ -31,6 +31,14 @@ pub enum EditorCommand {
     MoveBlocks {
         down: bool,
     },
+    /// Move the top-level `block` to the gap `to` between the document's
+    /// top-level blocks (0 = before the first, `len` = after the last),
+    /// counted before the move (drag to reorder, D22). Nested blocks are
+    /// refused with `Unsupported`; a move onto its own position is a no-op.
+    MoveBlockTo {
+        block: BlockId,
+        to: usize,
+    },
     InsertBlock(BlockKind),
     /// Make the caret's paragraph a code block (its text becomes the code),
     /// or set the language of the code block holding the caret.
@@ -1308,6 +1316,7 @@ impl BlockEditorModel {
             EditorCommand::Outdent => self.outdent(),
             EditorCommand::SetCodeBlock { lang } => self.set_code_block(lang),
             EditorCommand::MoveBlocks { down } => self.move_blocks(down),
+            EditorCommand::MoveBlockTo { block, to } => self.move_block_to(block, to),
             EditorCommand::InsertBlock(BlockKind::HorizontalRule) => {
                 let pos = self
                     .caret()
@@ -1614,6 +1623,32 @@ impl BlockEditorModel {
             }
             tx.insert(outer_list, outer_index + 1, vec![block])?;
             Ok(None)
+        })
+    }
+
+    fn move_block_to(&mut self, block: BlockId, to: usize) -> Result<bool, CommandError> {
+        let root = self.doc.root;
+        let Some((parent, index)) = self.doc.index_in_parent(block) else {
+            return Err(CommandError::Position(PositionError::UnknownBlock(block)));
+        };
+        if parent != root {
+            return Err(CommandError::Unsupported("move a nested block"));
+        }
+        let len = self.doc.children(root).len();
+        if to > len {
+            return Err(CommandError::Unsupported("gap out of range"));
+        }
+        let new_index = if to > index { to - 1 } else { to };
+        if new_index == index {
+            return Ok(false);
+        }
+        let selection = BlockSelection::Blocks {
+            anchor: block,
+            head: block,
+        };
+        self.transact(EditOrigin::Command("move_block_to"), |tx| {
+            tx.move_block(block, root, new_index)?;
+            Ok(Some(selection))
         })
     }
 

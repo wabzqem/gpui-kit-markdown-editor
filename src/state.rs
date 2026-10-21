@@ -334,6 +334,18 @@ pub struct PasteRequest {
     sequence: u64,
 }
 
+/// D22: a press on a top-level block's handle. It becomes a reorder drag
+/// once the pointer moves past a small threshold; until then the press is
+/// an ordinary click.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct BlockDrag {
+    pub(crate) block: BlockId,
+    pub(crate) start: Point<Pixels>,
+    pub(crate) active: bool,
+    /// The gap between top-level blocks the block would drop into.
+    pub(crate) drop: Option<usize>,
+}
+
 /// IME composition in progress: the marked byte range in one leaf.
 #[derive(Clone, Debug)]
 struct Marked {
@@ -362,6 +374,8 @@ pub struct BlockEditorState {
     /// Remembered x for repeated up/down.
     goal_x: Option<Pixels>,
     pub(crate) dragging: bool,
+    /// A press on a block handle, and the drag to reorder it (D22).
+    pub(crate) block_drag: Option<BlockDrag>,
     readonly: bool,
     image_policy: super::ImagePolicy,
     submit_policy: SubmitPolicy,
@@ -431,6 +445,7 @@ impl BlockEditorState {
             composition_open: false,
             goal_x: None,
             dragging: false,
+            block_drag: None,
             readonly: false,
             image_policy: super::ImagePolicy::default(),
             submit_policy: SubmitPolicy::default(),
@@ -1636,6 +1651,155 @@ impl BlockEditorState {
         self.selection_changed(cx);
     }
 
+    /// Top-level blocks with laid-out geometry, in document order, with the
+    /// union of their leaves' bounds (D22).
+    pub(crate) fn top_level_bounds(&self) -> Vec<(usize, BlockId, Bounds<Pixels>)> {
+        let doc = &self.model.doc;
+        let frame = self.frame.borrow();
+        let children = doc.children(doc.root);
+        let mut out: Vec<(usize, BlockId, Bounds<Pixels>)> = Vec::new();
+        for leaf in &frame.leaves {
+            let path = doc.path(leaf.info.block);
+            let Some(top) = path.get(1).copied() else {
+                continue;
+            };
+            let Some(ix) = children.iter().position(|c| *c == top) else {
+                continue;
+            };
+            let b = leaf.bounds();
+            match out.iter_mut().find(|(_, id, _)| *id == top) {
+                Some(entry) => entry.2 = entry.2.union(&b),
+                None => out.push((ix, top, b)),
+            }
+        }
+        out.sort_by_key(|(ix, _, _)| *ix);
+        out
+    }
+
+    /// D22: the top-level block whose drag handle (the 24px strip left of
+    /// its text) is under `at`.
+    pub(crate) fn drag_handle_at(&self, at: Point<Pixels>) -> Option<BlockId> {
+        use gpui::px;
+        if self.readonly {
+            return None;
+        }
+        self.top_level_bounds()
+            .into_iter()
+            .find(|(_, _, b)| {
+                at.y >= b.top()
+                    && at.y < b.bottom()
+                    && at.x < b.left()
+                    && at.x >= b.left() - px(24.)
+            })
+            .map(|(_, id, _)| id)
+    }
+
+    /// D22: the gap between top-level blocks nearest the pointer's `y`.
+    fn drop_gap_at(&self, y: Pixels) -> Option<usize> {
+        let blocks = self.top_level_bounds();
+        let len = self.model.doc.children(self.model.doc.root).len();
+        if blocks.is_empty() {
+            return None;
+        }
+        Some(
+            blocks
+                .iter()
+                .find(|(_, _, b)| y < b.center().y)
+                .map_or_else(
+                    || blocks.last().map_or(len, |(ix, _, _)| ix + 1),
+                    |(ix, _, _)| *ix,
+                ),
+        )
+    }
+
+    /// D22: mouse-down on a handle arms a drag (the click itself is handled
+    /// as before).
+    pub(crate) fn arm_block_drag(&mut self, at: Point<Pixels>) {
+        self.block_drag = self.drag_handle_at(at).map(|block| BlockDrag {
+            block,
+            start: at,
+            active: false,
+            drop: None,
+        });
+    }
+
+    /// D22: pointer moved with the button down. Returns whether a block
+    /// drag owns the move (no text selection then).
+    pub(crate) fn block_drag_to(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) -> bool {
+        use gpui::px;
+        let Some(mut drag) = self.block_drag else {
+            return false;
+        };
+        if !drag.active {
+            let d = at - drag.start;
+            if d.x.abs().max(d.y.abs()) < px(4.) {
+                return false;
+            }
+            drag.active = true;
+            self.dragging = false;
+            self.end_composition();
+            let _ = self.model.set_selection(BlockSelection::Blocks {
+                anchor: drag.block,
+                head: drag.block,
+            });
+            self.selection_changed(cx);
+        }
+        drag.drop = self.drop_gap_at(at.y);
+        self.block_drag = Some(drag);
+        cx.notify();
+        true
+    }
+
+    /// D22: button released. Drops an active drag (one undo step).
+    pub(crate) fn finish_block_drag(&mut self, cx: &mut Context<Self>) {
+        let Some(drag) = self.block_drag.take() else {
+            return;
+        };
+        if drag.active {
+            if let Some(to) = drag.drop {
+                self.model.break_coalescing();
+                let _ = self.run(
+                    EditorCommand::MoveBlockTo {
+                        block: drag.block,
+                        to,
+                    },
+                    cx,
+                );
+                self.model.break_coalescing();
+            }
+            cx.notify();
+        }
+    }
+
+    /// D22: where to paint the drop indicator of an active drag: a line in
+    /// the gap, spanning the blocks' width.
+    pub(crate) fn drop_indicator(&self) -> Option<Bounds<Pixels>> {
+        use gpui::{point, px, size};
+        let drag = self.block_drag.filter(|d| d.active)?;
+        let to = drag.drop?;
+        let blocks = self.top_level_bounds();
+        let left = blocks
+            .iter()
+            .map(|(_, _, b)| b.left())
+            .reduce(Pixels::min)?;
+        let right = blocks
+            .iter()
+            .map(|(_, _, b)| b.right())
+            .reduce(Pixels::max)?;
+        let prev = blocks.iter().rev().find(|(ix, _, _)| *ix < to);
+        let next = blocks.iter().find(|(ix, _, _)| *ix >= to);
+        let y = match (prev, next) {
+            (Some((_, _, a)), Some((_, _, b))) => (a.bottom() + b.top()) / 2.,
+            (None, Some((_, _, b))) => b.top() - px(3.),
+            (Some((_, _, a)), None) => a.bottom() + px(3.),
+            (None, None) => return None,
+        };
+        Some(gpui::Bounds::new(
+            point(left - px(8.), y - px(1.)),
+            size(right - left + px(8.), px(2.)),
+        ))
+    }
+
     /// The table or code block whose left edge (the strip left of its
     /// text, inside the block's padding) is under `at`.
     pub(crate) fn block_handle_at(&self, at: Point<Pixels>) -> Option<BlockId> {
@@ -2475,6 +2639,7 @@ fn command_name(command: &EditorCommand) -> &'static str {
         EditorCommand::Indent => "indent",
         EditorCommand::Outdent => "outdent",
         EditorCommand::MoveBlocks { .. } => "move_blocks",
+        EditorCommand::MoveBlockTo { .. } => "move_block_to",
         EditorCommand::InsertBlock(_) => "insert_block",
         EditorCommand::SelectAll => "select_all",
         EditorCommand::DeleteSelection => "delete_selection",

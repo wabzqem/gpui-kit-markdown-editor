@@ -107,6 +107,11 @@ shows a grip above the column and left of the row; clicking it selects that
 column / row and opens a menu (insert, delete, column alignment). Cmd/Ctrl-click a link emits `LinkClicked`; the editor never
 opens a browser.
 
+Drag to reorder (D22): every top-level block has a handle in the left gutter
+(give the editor left padding, e.g. `.pl_8()`); drag it and a line shows where
+it will drop. Lists, quotes and tables move whole; their items, rows and cells
+are not draggable. A move is one undo step (`EditorCommand::MoveBlockTo`).
+
 Text-editing keys (D21). Word deletes: Option+Backspace / Option+Delete on
 macOS, Ctrl+Backspace / Ctrl+Delete elsewhere (word motion is Option+arrows /
 Ctrl+arrows). macOS also has Cmd+Backspace / Cmd+Delete (delete to the start /

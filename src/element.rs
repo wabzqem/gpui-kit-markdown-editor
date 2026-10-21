@@ -654,6 +654,20 @@ impl Element for EditorRoot {
                     && mouse.x >= b.left() - px(24.)
                     && mouse.x < b.right()
             });
+        // D22: every top-level block has a drag handle in the same strip.
+        let hovered = hovered.or_else(|| {
+            self.state
+                .read(cx)
+                .top_level_bounds()
+                .into_iter()
+                .map(|(_, _, b)| b)
+                .find(|b| {
+                    mouse.y >= b.top()
+                        && mouse.y < b.bottom()
+                        && mouse.x >= b.left() - px(24.)
+                        && mouse.x < b.right()
+                })
+        });
         if let Some(b) = hovered {
             let grip = Bounds::new(
                 point(b.left() - px(14.), b.top() + px(2.)),
@@ -678,6 +692,10 @@ impl Element for EditorRoot {
                 style.caret(),
                 gpui::BorderStyle::Solid,
             ));
+        }
+        // D22: where a dragged block would drop.
+        if let Some(line) = self.state.read(cx).drop_indicator() {
+            window.paint_quad(fill(line, style.caret()).corner_radii(px(1.)));
         }
         if let Some((block, range)) = marked
             && let Some(leaf) = frame.leaf(block)
@@ -743,6 +761,9 @@ impl Element for EditorRoot {
                     return;
                 }
                 state.dragging = true;
+                if !event.modifiers.shift {
+                    state.arm_block_drag(event.position);
+                }
                 state.mouse_at(event.position, event.modifiers.shift, cx);
                 if !event.modifiers.shift && event.click_count >= 2 {
                     state.select_unit(event.click_count >= 3, cx);
@@ -764,6 +785,9 @@ impl Element for EditorRoot {
                 return;
             }
             entity.update(cx, |state, cx| {
+                if state.block_drag_to(event.position, cx) {
+                    return;
+                }
                 if state.dragging {
                     state.mouse_at(event.position, true, cx);
                 }
@@ -772,7 +796,10 @@ impl Element for EditorRoot {
         let entity = self.state.clone();
         window.on_mouse_event(move |_: &MouseUpEvent, phase, _, cx| {
             if phase == DispatchPhase::Bubble {
-                entity.update(cx, |state, _| state.dragging = false);
+                entity.update(cx, |state, cx| {
+                    state.dragging = false;
+                    state.finish_block_drag(cx);
+                });
             }
         });
     }
