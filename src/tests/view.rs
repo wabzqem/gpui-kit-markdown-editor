@@ -3849,3 +3849,299 @@ fn d20_grab_cursor_over_a_grip(cx: &mut TestAppContext) {
     draw(cx);
     assert!(editor.read_with(cx, |e, _| e.grip_hover));
 }
+
+// ---- D21: platform text-editing shortcuts ---------------------------------
+
+const WD: &str = if cfg!(target_os = "macos") {
+    "alt"
+} else {
+    "ctrl"
+};
+
+fn act(cx: &mut VisualTestContext, action: impl gpui::Action) {
+    cx.update(|window, cx| window.dispatch_action(Box::new(action), cx));
+    draw(cx);
+}
+
+fn caret_pos(editor: &Entity<BlockEditorState>, cx: &VisualTestContext) -> (usize, usize) {
+    editor.read_with(cx, |e, _| {
+        let c = e.model().caret().unwrap();
+        let ix = e
+            .model()
+            .document()
+            .leaves()
+            .position(|l| l.id() == c.block)
+            .unwrap();
+        (ix, c.offset)
+    })
+}
+
+#[gpui::test]
+fn word_delete_in_a_paragraph_coalesces_and_undoes(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "hello brave world");
+    caret_at(&editor, cx, 0, 11);
+    keys(cx, &format!("{WD}-backspace"));
+    assert_eq!(source(&editor, cx), "hello  world");
+    caret_at(&editor, cx, 0, 6);
+    // The caret move breaks coalescing: a separate undo step.
+    keys(cx, &format!("{WD}-delete"));
+    assert_eq!(source(&editor, cx), "hello ");
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "hello  world");
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "hello brave world");
+}
+
+#[gpui::test]
+fn consecutive_word_deletes_are_one_undo_step(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "one two three four");
+    caret_at(&editor, cx, 0, 13);
+    keys(cx, &format!("{WD}-backspace {WD}-backspace"));
+    assert_eq!(source(&editor, cx), "one  four");
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "one two three four");
+}
+
+#[gpui::test]
+fn line_deletes_are_their_own_undo_step(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "alpha beta gamma");
+    caret_at(&editor, cx, 0, 10);
+    act(cx, crate::state::DeleteToLineStart);
+    assert_eq!(source(&editor, cx), " gamma");
+    act(cx, crate::state::DeleteToLineEnd);
+    assert_eq!(source(&editor, cx), "");
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), " gamma");
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "alpha beta gamma");
+}
+
+#[gpui::test]
+fn a_selection_is_all_any_delete_shortcut_removes(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "hello world");
+    for run in 0..4 {
+        editor.update(cx, |e, cx| {
+            let id = e.model().document().leaves().next().unwrap().id();
+            e.set_selection(
+                BlockSelection::Text {
+                    anchor: BlockPosition::new(id, 2),
+                    head: BlockPosition::new(id, 4),
+                },
+                cx,
+            )
+            .unwrap();
+        });
+        match run {
+            0 => keys(cx, &format!("{WD}-backspace")),
+            1 => keys(cx, &format!("{WD}-delete")),
+            2 => act(cx, crate::state::DeleteToLineStart),
+            _ => act(cx, crate::state::DeleteToLineEnd),
+        }
+        assert_eq!(source(&editor, cx), "heo world");
+        keys(cx, "M-z");
+        assert_eq!(source(&editor, cx), "hello world");
+    }
+}
+
+/// At a block's start, word and line deletes are a plain Backspace (join,
+/// lift, heading to paragraph), and Delete-forward at the end a plain Delete.
+#[gpui::test]
+fn at_block_edges_the_shortcuts_are_plain_backspace_and_delete(cx: &mut TestAppContext) {
+    let cases: [(&str, usize, usize, bool); 6] = [
+        ("one\n\ntwo", 1, 0, false),
+        ("# Title", 0, 0, false),
+        ("intro\n\n## Title", 1, 0, false),
+        ("- a\n- b", 1, 0, false),
+        ("> quoted\n\nafter", 0, 0, false),
+        ("one\n\ntwo", 0, 3, true),
+    ];
+    for (src, leaf, off, forward) in cases {
+        let plain = {
+            let (editor, cx) = open(cx, src);
+            caret_at(&editor, cx, leaf, off);
+            keys(cx, if forward { "delete" } else { "backspace" });
+            source(&editor, cx)
+        };
+        assert_ne!(plain, src);
+        for run in 0..2 {
+            let (editor, cx) = open(cx, src);
+            caret_at(&editor, cx, leaf, off);
+            match (run, forward) {
+                (0, false) => keys(cx, &format!("{WD}-backspace")),
+                (0, true) => keys(cx, &format!("{WD}-delete")),
+                (_, false) => act(cx, crate::state::DeleteToLineStart),
+                (_, true) => act(cx, crate::state::DeleteToLineEnd),
+            }
+            assert_eq!(source(&editor, cx), plain, "{src:?} run {run}");
+        }
+    }
+}
+
+#[gpui::test]
+fn word_and_line_deletes_inside_headings_lists_and_quotes(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "# Hello world");
+    caret_at(&editor, cx, 0, 6);
+    act(cx, crate::state::DeleteToLineStart);
+    assert_eq!(source(&editor, cx), "# world");
+
+    let (editor, cx) = open(cx, "- one two three\n- next");
+    caret_at(&editor, cx, 0, 7);
+    keys(cx, &format!("{WD}-backspace"));
+    assert_eq!(source(&editor, cx), "- one  three\n- next");
+    act(cx, crate::state::DeleteToLineEnd);
+    assert_eq!(source(&editor, cx), "- one \n- next");
+
+    let (editor, cx) = open(cx, "> one two\n\nafter");
+    caret_at(&editor, cx, 0, 4);
+    act(cx, crate::state::DeleteToLineStart);
+    assert_eq!(source(&editor, cx), "> two\n\nafter");
+    keys(cx, &format!("{WD}-delete"));
+    assert_eq!(caret_pos(&editor, cx), (0, 0));
+}
+
+#[gpui::test]
+fn code_block_lines_are_newline_lines(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "```\nab cd\nef gh\n```");
+    caret_at(&editor, cx, 0, 11);
+    act(cx, crate::state::DeleteToLineStart);
+    assert_eq!(source(&editor, cx), "```\nab cd\n\n```");
+    // At a code line's start: a plain Backspace (removes the newline).
+    act(cx, crate::state::DeleteToLineStart);
+    assert_eq!(source(&editor, cx), "```\nab cd\n```");
+    caret_at(&editor, cx, 0, 2);
+    act(cx, crate::state::DeleteToLineEnd);
+    assert_eq!(source(&editor, cx), "```\nab\n```");
+
+    let (editor, cx) = open(cx, "```\nab cd\nef gh\n```");
+    caret_at(&editor, cx, 0, 2);
+    act(cx, crate::state::DeleteToLineEnd);
+    assert_eq!(source(&editor, cx), "```\nab\nef gh\n```");
+    caret_at(&editor, cx, 0, 2);
+    keys(cx, &format!("{WD}-backspace"));
+    assert_eq!(source(&editor, cx), "```\n\nef gh\n```");
+}
+
+#[gpui::test]
+fn table_cell_deletes_stay_in_the_cell(cx: &mut TestAppContext) {
+    let src = "| ab cd | x |\n| --- | --- |\n| y | z |";
+    let (editor, cx) = open(cx, src);
+    caret_at(&editor, cx, 0, 5);
+    keys(cx, &format!("{WD}-backspace"));
+    assert_eq!(source(&editor, cx), "| ab | x |\n| --- | --- |\n| y | z |");
+    keys(cx, &format!("{WD}-backspace"));
+    assert_eq!(source(&editor, cx), "|  | x |\n| --- | --- |\n| y | z |");
+    let emptied = source(&editor, cx);
+    // At the cell's edges: nothing, never a join.
+    keys(cx, &format!("{WD}-backspace {WD}-delete"));
+    act(cx, crate::state::DeleteToLineStart);
+    act(cx, crate::state::DeleteToLineEnd);
+    assert_eq!(source(&editor, cx), emptied);
+    assert_eq!(caret_pos(&editor, cx), (0, 0));
+
+    let (editor, cx) = open(cx, src);
+    for (leaf, off) in [(1, 0), (1, 1), (0, 5), (2, 0)] {
+        caret_at(&editor, cx, leaf, off);
+        if off == 0 {
+            keys(cx, &format!("{WD}-backspace"));
+            act(cx, crate::state::DeleteToLineStart);
+        } else {
+            keys(cx, &format!("{WD}-delete"));
+            act(cx, crate::state::DeleteToLineEnd);
+        }
+        assert_eq!(source(&editor, cx), src, "cell {leaf} at {off}");
+    }
+    // Inside a cell, line deletes take the cell's text on that side.
+    caret_at(&editor, cx, 0, 2);
+    act(cx, crate::state::DeleteToLineEnd);
+    assert_eq!(source(&editor, cx), "| ab | x |\n| --- | --- |\n| y | z |");
+}
+
+#[gpui::test]
+fn word_deletes_stop_at_atoms_and_ignore_marks(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "a b![pic](x.png)cd ef");
+    // Text: "a b" U+FFFC "cd ef"; caret after "cd".
+    caret_at(&editor, cx, 0, 8);
+    keys(cx, &format!("{WD}-backspace"));
+    assert_eq!(source(&editor, cx), "a b![pic](x.png) ef");
+    keys(cx, &format!("{WD}-backspace"));
+    assert_eq!(source(&editor, cx), "a b ef");
+    keys(cx, "M-z");
+    assert_eq!(source(&editor, cx), "a b![pic](x.png)cd ef");
+    caret_at(&editor, cx, 0, 2);
+    keys(cx, &format!("{WD}-delete"));
+    assert_eq!(source(&editor, cx), "a ![pic](x.png)cd ef");
+    keys(cx, &format!("{WD}-delete"));
+    assert_eq!(source(&editor, cx), "a cd ef");
+
+    // A word split across marks goes as one word; the marks of what stays
+    // are kept.
+    let (editor, cx) = open(cx, "x ab**cd** **ef**");
+    caret_at(&editor, cx, 0, 6);
+    keys(cx, &format!("{WD}-backspace"));
+    assert_eq!(source(&editor, cx), "x  **ef**");
+}
+
+#[gpui::test]
+fn line_deletes_follow_the_visual_line(cx: &mut TestAppContext) {
+    let long = "word ".repeat(60);
+    let long = long.trim_end();
+    let (editor, cx) = open(cx, long);
+    caret_at(&editor, cx, 0, 0);
+    keys(cx, "end");
+    let (_, first_end) = caret_pos(&editor, cx);
+    assert!(first_end > 0 && first_end < long.len());
+    let at = first_end + 12;
+    caret_at(&editor, cx, 0, at);
+    act(cx, crate::state::DeleteToLineStart);
+    let after = source(&editor, cx);
+    let removed = long.len() - after.len();
+    assert!(removed > 0 && removed <= 13, "removed {removed}");
+    assert!(after.starts_with(&long[..first_end]));
+    assert_eq!(&after[at - removed..], &long[at..]);
+
+    let (editor, cx) = open(cx, long);
+    caret_at(&editor, cx, 0, 3);
+    act(cx, crate::state::DeleteToLineEnd);
+    let after = source(&editor, cx);
+    assert!(after.starts_with("wor"));
+    assert!(
+        after.len() > long.len() / 2,
+        "only the first visual line goes"
+    );
+}
+
+#[gpui::test]
+fn paragraph_motion_goes_to_block_edges(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "ab\n\ncd");
+    caret_at(&editor, cx, 0, 1);
+    act(cx, crate::state::MoveParagraphEnd);
+    assert_eq!(caret_pos(&editor, cx), (0, 2));
+    act(cx, crate::state::MoveParagraphEnd);
+    assert_eq!(caret_pos(&editor, cx), (1, 2));
+    act(cx, crate::state::MoveParagraphStart);
+    assert_eq!(caret_pos(&editor, cx), (1, 0));
+    act(cx, crate::state::MoveParagraphStart);
+    assert_eq!(caret_pos(&editor, cx), (0, 0));
+    act(cx, crate::state::SelectParagraphEnd);
+    editor.read_with(cx, |e, _| match e.selection() {
+        BlockSelection::Text { anchor, head } => {
+            assert_eq!((anchor.offset, head.offset), (0, 2));
+        }
+        other => panic!("{other:?}"),
+    });
+}
+
+#[gpui::test]
+fn existing_home_end_bindings_cover_line_motion(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "one two");
+    caret_at(&editor, cx, 0, 3);
+    keys(cx, "shift-end");
+    editor.read_with(cx, |e, _| match e.selection() {
+        BlockSelection::Text { anchor, head } => {
+            assert_eq!((anchor.offset, head.offset), (3, 7));
+        }
+        other => panic!("{other:?}"),
+    });
+    keys(cx, "home");
+    assert_eq!(caret_pos(&editor, cx), (0, 0));
+}

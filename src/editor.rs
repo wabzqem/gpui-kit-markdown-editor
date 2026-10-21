@@ -102,6 +102,24 @@ impl BlockEditorModel {
         Ok(())
     }
 
+    /// Delete `anchor..head` in one leaf (D21 word / line deletes) without
+    /// an undo boundary, so a run of word deletes coalesces like Backspace.
+    pub(crate) fn delete_span(
+        &mut self,
+        anchor: BlockPosition,
+        head: BlockPosition,
+        forward: bool,
+    ) -> Result<(), super::command::CommandError> {
+        let selection = BlockSelection::Text { anchor, head };
+        self.doc
+            .validate_selection(&selection)
+            .map_err(super::command::CommandError::Selection)?;
+        self.selection_epoch += 1;
+        self.stored_marks = None;
+        self.selection = selection;
+        self.delete(forward)
+    }
+
     /// The caret (head of a text selection); `None` for a block selection.
     pub fn caret(&self) -> Option<BlockPosition> {
         match &self.selection {

@@ -77,6 +77,14 @@ actions!(
         Cut,
         Paste,
         PastePlain,
+        DeleteWordLeft,
+        DeleteWordRight,
+        DeleteToLineStart,
+        DeleteToLineEnd,
+        MoveParagraphStart,
+        MoveParagraphEnd,
+        SelectParagraphStart,
+        SelectParagraphEnd,
     ]
 );
 
@@ -126,6 +134,44 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new("cmd-shift-up", SelectDocStart, ctx),
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-shift-down", SelectDocEnd, ctx),
+        // D21: word deletes (Option on macOS, Ctrl elsewhere).
+        KeyBinding::new(&format!("{w}-backspace"), DeleteWordLeft, ctx),
+        KeyBinding::new(&format!("{w}-delete"), DeleteWordRight, ctx),
+        // D21: macOS line keys and the emacs bindings of Cocoa text fields.
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-backspace", DeleteToLineStart, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-delete", DeleteToLineEnd, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("ctrl-k", DeleteToLineEnd, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("ctrl-a", MoveHome, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("ctrl-e", MoveEnd, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("ctrl-shift-a", SelectHome, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("ctrl-shift-e", SelectEnd, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("ctrl-d", Delete, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("ctrl-h", Backspace, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-left", MoveHome, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-right", MoveEnd, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-shift-left", SelectHome, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-shift-right", SelectEnd, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("alt-up", MoveParagraphStart, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("alt-down", MoveParagraphEnd, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("alt-shift-up", SelectParagraphStart, ctx),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("alt-shift-down", SelectParagraphEnd, ctx),
         KeyBinding::new("tab", Indent, ctx),
         KeyBinding::new("shift-tab", Outdent, ctx),
         KeyBinding::new(&format!("{m}-a"), SelectAll, ctx),
@@ -1123,6 +1169,14 @@ impl BlockEditorState {
         let Some((_, head)) = self.head_anchor() else {
             return;
         };
+        let target = self.visual_line_edge(head, end);
+        self.goal_x = None;
+        self.move_to(target, extend, cx);
+    }
+
+    /// Start or end of the visual (soft-wrapped) line holding `head`; the
+    /// leaf's edge when it has no geometry.
+    fn visual_line_edge(&self, head: BlockPosition, end: bool) -> BlockPosition {
         let visual = self.frame.borrow().line_edge(head, end);
         // End at a soft wrap: the line's end index is also the next line's
         // start, where the caret would draw. Stay before the wrap point.
@@ -1152,8 +1206,194 @@ impl BlockEditorState {
             };
             BlockPosition::new(head.block, offset)
         });
+        self.model.doc.clamp(target)
+    }
+
+    /// Where a D21 line delete stops: the visual line edge in text, the code
+    /// line (between newlines) in a code block; always inside `head`'s leaf.
+    fn delete_line_target(&self, head: BlockPosition, end: bool) -> BlockPosition {
+        if let Some(code) = self.model.doc.plain(head.block) {
+            let offset = if end {
+                code[head.offset..]
+                    .find('\n')
+                    .map_or(code.len(), |i| head.offset + i)
+            } else {
+                code[..head.offset].rfind('\n').map_or(0, |i| i + 1)
+            };
+            return BlockPosition::new(head.block, offset);
+        }
+        let target = self.visual_line_edge(head, end);
+        if target.block == head.block {
+            target
+        } else {
+            head
+        }
+    }
+
+    /// Where a D21 word delete stops: the word motion's boundary, but never
+    /// past an inline atom (an adjacent atom is deleted on its own), and
+    /// never outside `head`'s leaf.
+    fn delete_word_target(&self, head: BlockPosition, forward: bool) -> BlockPosition {
+        use super::inline::ATOM_CHAR;
+        let Some(text) = self.model.doc.leaf_text(head.block) else {
+            return head;
+        };
+        let adjacent = if forward {
+            text[head.offset..].chars().next()
+        } else {
+            text[..head.offset].chars().next_back()
+        };
+        let atom = ATOM_CHAR.len_utf8();
+        match adjacent {
+            None => return head,
+            Some(ATOM_CHAR) if forward => {
+                return BlockPosition::new(head.block, head.offset + atom);
+            }
+            Some(ATOM_CHAR) => return BlockPosition::new(head.block, head.offset - atom),
+            Some(_) => {}
+        }
+        let step = self.step_word(head, forward);
+        if step.block != head.block {
+            return head;
+        }
+        let offset = if forward {
+            text[head.offset..step.offset]
+                .find(ATOM_CHAR)
+                .map_or(step.offset, |i| head.offset + i)
+        } else {
+            text[step.offset..head.offset]
+                .rfind(ATOM_CHAR)
+                .map_or(step.offset, |i| step.offset + i + atom)
+        };
+        self.model.doc.clamp(BlockPosition::new(head.block, offset))
+    }
+
+    /// D21: delete a word or to the line edge. A range (or block / cell
+    /// selection) deletes just the selection; at the leaf's edge it is a
+    /// plain Backspace / Delete, except in a table cell, where it does
+    /// nothing.
+    fn delete_by(&mut self, line: bool, forward: bool, cx: &mut Context<Self>) {
+        self.end_composition();
+        if self.readonly {
+            return;
+        }
+        let origin = if forward {
+            EditOrigin::DeleteForward
+        } else {
+            EditOrigin::Backspace
+        };
+        let head = match self.model.selection() {
+            BlockSelection::Text { anchor, head } if anchor == head => *head,
+            _ => return self.edit(origin, |m| m.delete(forward), cx),
+        };
+        let target = if line {
+            self.delete_line_target(head, forward)
+        } else {
+            self.delete_word_target(head, forward)
+        };
+        if line {
+            self.model.break_coalescing();
+        }
+        if target == head {
+            if super::table::table_of(&self.model.doc, head.block).is_none() {
+                self.edit(origin, |m| m.delete(forward), cx);
+            }
+        } else {
+            self.edit(origin, |m| m.delete_span(target, head, forward), cx);
+        }
+        if line {
+            self.model.break_coalescing();
+        }
+    }
+
+    /// D21 Option+Up/Down: the start / end of the block, or of the previous
+    /// / next one when already there.
+    fn paragraph_edge(&mut self, forward: bool, extend: bool, cx: &mut Context<Self>) {
+        if self.collapse_blocks(forward, cx) {
+            return;
+        }
+        let Some((_, head)) = self.head_anchor() else {
+            return;
+        };
+        let doc = &self.model.doc;
+        let len = doc.leaf_len(head.block).unwrap_or(0);
+        let mut pos = head;
+        if (forward && pos.offset >= len) || (!forward && pos.offset == 0) {
+            pos = self.step_horizontal(pos, forward);
+        }
+        let offset = if forward {
+            doc.leaf_len(pos.block).unwrap_or(0)
+        } else {
+            0
+        };
+        let target = doc.clamp(BlockPosition::new(pos.block, offset));
         self.goal_x = None;
-        self.move_to(self.model.doc.clamp(target), extend, cx);
+        self.move_to(target, extend, cx);
+    }
+
+    pub(crate) fn on_delete_word_left(
+        &mut self,
+        _: &DeleteWordLeft,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.delete_by(false, false, cx);
+    }
+    pub(crate) fn on_delete_word_right(
+        &mut self,
+        _: &DeleteWordRight,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.delete_by(false, true, cx);
+    }
+    pub(crate) fn on_delete_to_line_start(
+        &mut self,
+        _: &DeleteToLineStart,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.delete_by(true, false, cx);
+    }
+    pub(crate) fn on_delete_to_line_end(
+        &mut self,
+        _: &DeleteToLineEnd,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.delete_by(true, true, cx);
+    }
+    pub(crate) fn on_move_paragraph_start(
+        &mut self,
+        _: &MoveParagraphStart,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.paragraph_edge(false, false, cx);
+    }
+    pub(crate) fn on_move_paragraph_end(
+        &mut self,
+        _: &MoveParagraphEnd,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.paragraph_edge(true, false, cx);
+    }
+    pub(crate) fn on_select_paragraph_start(
+        &mut self,
+        _: &SelectParagraphStart,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.paragraph_edge(false, true, cx);
+    }
+    pub(crate) fn on_select_paragraph_end(
+        &mut self,
+        _: &SelectParagraphEnd,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.paragraph_edge(true, true, cx);
     }
 
     /// The link drawn under the window point `at`: its leaf, byte range
