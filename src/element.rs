@@ -654,20 +654,6 @@ impl Element for EditorRoot {
                     && mouse.x >= b.left() - px(24.)
                     && mouse.x < b.right()
             });
-        // D22: every top-level block has a drag handle in the same strip.
-        let hovered = hovered.or_else(|| {
-            self.state
-                .read(cx)
-                .top_level_bounds()
-                .into_iter()
-                .map(|(_, _, b)| b)
-                .find(|b| {
-                    mouse.y >= b.top()
-                        && mouse.y < b.bottom()
-                        && mouse.x >= b.left() - px(24.)
-                        && mouse.x < b.right()
-                })
-        });
         if let Some(b) = hovered {
             let grip = Bounds::new(
                 point(b.left() - px(14.), b.top() + px(2.)),

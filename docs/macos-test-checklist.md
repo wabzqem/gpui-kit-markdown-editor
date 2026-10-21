@@ -96,8 +96,8 @@ Tick each box; note anything that differs from **Expected**.
 
 | # | Steps | Expected |
 | --- | --- | --- |
-| 5.1 | Hover left of "Plain..." paragraph in the gutter. | A thin grip appears. |
-| 5.2 | Drag the grip down over the list. | The paragraph is outlined; a horizontal line shows the drop gap; release moves it there. Cmd+Z puts it back in one step. |
-| 5.3 | Drag the list by the grip left of an item. | The whole list moves; items cannot be dragged on their own. |
-| 5.4 | Drag the table by the strip left of its first column, to the top. | The whole table moves. |
-| 5.5 | Click (no drag) the gutter left of a paragraph. | The caret goes to the line start; nothing moves. |
+| 5.1 | Hover just left of the code block's text (inside its background). | A thin grip appears and the pointer is an open hand, like the table grips. |
+| 5.2 | Drag that handle up over "Plain..." paragraph. | The code block is outlined; a horizontal line shows the drop gap; release moves it there. Cmd+Z puts it back in one step. |
+| 5.3 | Drag the table by the strip left of its first column, to the top. | The whole table moves. |
+| 5.4 | Click (no drag) the code block's handle. | The code block is selected as a block; nothing moves. Backspace deletes it; Cmd+Z restores. |
+| 5.5 | Hover left of a paragraph, heading, list item and quote. | No grip, normal pointer; dragging there selects text as usual. |

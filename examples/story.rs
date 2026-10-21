@@ -343,7 +343,7 @@ impl Render for BlockEditorStory {
                         // must not also scroll the story/gallery.
                         .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
                         .track_scroll(&self.scroll)
-                        .child(BlockEditor::new(&self.editor).min_h_full().p_2().pl_8()),
+                        .child(BlockEditor::new(&self.editor).min_h_full().p_2()),
                 ),
             )
             .child(

@@ -222,7 +222,8 @@ impl BlockEditorState {
             .into_iter()
             .map(|(t, l, _)| (t, l))
             .collect();
-        let on_grip = self.table_grip_hit(at).is_some();
+        // Table grips, and the drag handles of tables and code blocks (D22).
+        let on_grip = self.table_grip_hit(at).is_some() || self.drag_handle_at(at).is_some();
         if hovered != self.table_hover || on_grip != self.grip_hover {
             self.table_hover = hovered;
             self.grip_hover = on_grip;

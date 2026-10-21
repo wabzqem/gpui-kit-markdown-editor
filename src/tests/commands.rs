@@ -724,7 +724,7 @@ fn d20_select_table_line_selects_whole_rows_and_columns() {
     assert!(!m.select_table_line(t, crate::TableLine::Row(9)).unwrap());
 }
 
-// ---- D22: drag to reorder (MoveBlockTo) -----------------------------------
+// ---- D22: drag to reorder (move_block_to) -----------------------------------
 
 fn top(m: &BlockEditorModel, ix: usize) -> crate::BlockId {
     m.doc.children(m.doc.root)[ix]
@@ -734,10 +734,7 @@ fn top(m: &BlockEditorModel, ix: usize) -> crate::BlockId {
 fn move_block_to_reorders_top_level_blocks_in_one_undo_step() {
     let mut m = model("a\n\n# b\n\n- c\n- d\n\n> e");
     let a = top(&m, 0);
-    assert!(
-        m.run(EditorCommand::MoveBlockTo { block: a, to: 4 })
-            .unwrap()
-    );
+    assert!(m.move_block_to(a, 4).unwrap());
     assert_eq!(m.source(), "# b\n\n- c\n- d\n\n> e\n\na");
     assert_eq!(
         m.selection(),
@@ -747,19 +744,10 @@ fn move_block_to_reorders_top_level_blocks_in_one_undo_step() {
     assert_eq!(m.source(), "a\n\n# b\n\n- c\n- d\n\n> e");
     // A whole list and a whole quote move as units.
     let list = top(&m, 2);
-    assert!(
-        m.run(EditorCommand::MoveBlockTo { block: list, to: 0 })
-            .unwrap()
-    );
+    assert!(m.move_block_to(list, 0).unwrap());
     assert_eq!(m.source(), "- c\n- d\n\na\n\n# b\n\n> e");
     let quote = top(&m, 3);
-    assert!(
-        m.run(EditorCommand::MoveBlockTo {
-            block: quote,
-            to: 1
-        })
-        .unwrap()
-    );
+    assert!(m.move_block_to(quote, 1).unwrap());
     assert_eq!(m.source(), "- c\n- d\n\n> e\n\na\n\n# b");
 }
 
@@ -767,18 +755,9 @@ fn move_block_to_reorders_top_level_blocks_in_one_undo_step() {
 fn move_block_to_its_own_gap_is_a_no_op() {
     let mut m = model("a\n\nb\n\nc");
     let b = top(&m, 1);
-    assert!(
-        !m.run(EditorCommand::MoveBlockTo { block: b, to: 1 })
-            .unwrap()
-    );
-    assert!(
-        !m.run(EditorCommand::MoveBlockTo { block: b, to: 2 })
-            .unwrap()
-    );
-    assert!(
-        m.run(EditorCommand::MoveBlockTo { block: b, to: 9 })
-            .is_err()
-    );
+    assert!(!m.move_block_to(b, 1).unwrap());
+    assert!(!m.move_block_to(b, 2).unwrap());
+    assert!(m.move_block_to(b, 9).is_err());
     assert_eq!(m.source(), "a\n\nb\n\nc");
 }
 
@@ -789,18 +768,12 @@ fn move_block_to_refuses_nested_blocks() {
     let leaf = m.doc.leaves()[0];
     for block in [item, leaf] {
         assert!(matches!(
-            m.run(EditorCommand::MoveBlockTo { block, to: 3 }),
+            m.move_block_to(block, 3),
             Err(CommandError::Unsupported(_))
         ));
     }
     // A table moves whole.
     let table = top(&m, 2);
-    assert!(
-        m.run(EditorCommand::MoveBlockTo {
-            block: table,
-            to: 0
-        })
-        .unwrap()
-    );
+    assert!(m.move_block_to(table, 0).unwrap());
     assert!(m.source().starts_with("| x |"));
 }

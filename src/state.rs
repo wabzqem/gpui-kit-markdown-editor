@@ -1676,22 +1676,17 @@ impl BlockEditorState {
         out
     }
 
-    /// D22: the top-level block whose drag handle (the 24px strip left of
-    /// its text) is under `at`.
+    /// D22: the top-level table or code block whose edge handle
+    /// (`block_handle_at`) is under `at`; only those can be dragged.
     pub(crate) fn drag_handle_at(&self, at: Point<Pixels>) -> Option<BlockId> {
-        use gpui::px;
         if self.readonly {
             return None;
         }
-        self.top_level_bounds()
-            .into_iter()
-            .find(|(_, _, b)| {
-                at.y >= b.top()
-                    && at.y < b.bottom()
-                    && at.x < b.left()
-                    && at.x >= b.left() - px(24.)
-            })
-            .map(|(_, id, _)| id)
+        let block = self.block_handle_at(at)?;
+        let doc = &self.model.doc;
+        // A code block's handle is its leaf; tables report the table.
+        let top = doc.path(block).get(1).copied()?;
+        (top == block).then_some(block)
     }
 
     /// D22: the gap between top-level blocks nearest the pointer's `y`.
@@ -1758,11 +1753,9 @@ impl BlockEditorState {
         if drag.active {
             if let Some(to) = drag.drop {
                 self.model.break_coalescing();
-                let _ = self.run(
-                    EditorCommand::MoveBlockTo {
-                        block: drag.block,
-                        to,
-                    },
+                self.edit(
+                    EditOrigin::Command("move_block_to"),
+                    |m| m.move_block_to(drag.block, to).map(|_| ()),
                     cx,
                 );
                 self.model.break_coalescing();
@@ -2639,7 +2632,6 @@ fn command_name(command: &EditorCommand) -> &'static str {
         EditorCommand::Indent => "indent",
         EditorCommand::Outdent => "outdent",
         EditorCommand::MoveBlocks { .. } => "move_blocks",
-        EditorCommand::MoveBlockTo { .. } => "move_block_to",
         EditorCommand::InsertBlock(_) => "insert_block",
         EditorCommand::SelectAll => "select_all",
         EditorCommand::DeleteSelection => "delete_selection",

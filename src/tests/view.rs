@@ -4191,36 +4191,6 @@ fn ctrl_up_and_down_move_by_paragraph(cx: &mut TestAppContext) {
 
 // ---- D22: drag to reorder --------------------------------------------------
 
-struct PaddedRoot(Entity<BlockEditorState>);
-
-impl Render for PaddedRoot {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .w(px(600.))
-            .h(px(4000.))
-            .child(BlockEditor::new(&self.0).pl(px(32.)))
-    }
-}
-
-/// D22: handles live in the left gutter, so the host leaves one (padding).
-fn open_padded<'a>(
-    cx: &'a mut TestAppContext,
-    source: &str,
-) -> (Entity<BlockEditorState>, &'a mut VisualTestContext) {
-    cx.update(crate::init_for_tests);
-    let source = source.to_string();
-    let (root, cx) = cx.add_window_view(move |window, cx| {
-        PaddedRoot(cx.new(|cx| BlockEditorState::new(window, cx).with_source(&source)))
-    });
-    let editor = root.read_with(cx, |root, _| root.0.clone());
-    cx.update(|window, cx| {
-        let focus = editor.read(cx).focus_handle.clone();
-        window.focus(&focus, cx);
-    });
-    draw(cx);
-    (editor, cx)
-}
-
 fn top_bounds(
     editor: &Entity<BlockEditorState>,
     cx: &VisualTestContext,
@@ -4233,53 +4203,63 @@ fn top_bounds(
     })
 }
 
+/// D22 after review: only tables and code blocks have drag handles; their
+/// edge shows the open hand, a drag shows the drop line, a drop is one undo
+/// step.
 #[gpui::test]
-fn dragging_a_handle_reorders_blocks_with_a_drop_indicator(cx: &mut TestAppContext) {
-    let (editor, cx) = open_padded(cx, "first\n\n## second\n\n- third\n- item\n\nfourth");
+fn dragging_a_code_block_by_its_handle_with_a_drop_indicator(cx: &mut TestAppContext) {
+    let src = "first\n\n## second\n\n```\ncode\n```\n\nfourth";
+    let (editor, cx) = open(cx, src);
     let b = top_bounds(&editor, cx);
-    assert_eq!(b.len(), 4, "{b:?}");
-    let start = gpui::point(b[0].left() - px(10.), b[0].center().y);
+    assert_eq!(b.len(), 4);
+    let start = gpui::point(b[2].left() - px(4.), b[2].center().y);
+    cx.simulate_mouse_move(start, None, Modifiers::none());
+    draw(cx);
+    assert!(
+        editor.read_with(cx, |e, _| e.grip_hover),
+        "open hand on the handle"
+    );
     cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::none());
-    // Below the list's middle: the gap before "fourth".
-    let over = gpui::point(start.x, b[2].center().y + px(2.));
+    let over = gpui::point(start.x, b[0].center().y + px(2.));
     cx.simulate_mouse_move(over, Some(MouseButton::Left), Modifiers::none());
     draw(cx);
     let (indicator, drop) = editor.read_with(cx, |e, _| {
         (e.drop_indicator(), e.block_drag.and_then(|d| d.drop))
     });
-    assert_eq!(drop, Some(3));
+    assert_eq!(drop, Some(1));
     let line = indicator.expect("a drop indicator while dragging");
-    assert!(line.top() > b[2].bottom() - px(1.) && line.bottom() < b[3].top() + px(1.));
+    assert!(line.top() > b[0].bottom() - px(1.) && line.bottom() < b[1].top() + px(1.));
     cx.simulate_mouse_up(over, MouseButton::Left, Modifiers::none());
     draw(cx);
     assert_eq!(
         source(&editor, cx),
-        "## second\n\n- third\n- item\n\nfirst\n\nfourth"
+        "first\n\n```\ncode\n```\n\n## second\n\nfourth"
     );
-    assert!(editor.read_with(cx, |e, _| e.drop_indicator().is_none()));
     keys(cx, "M-z");
-    assert_eq!(
-        source(&editor, cx),
-        "first\n\n## second\n\n- third\n- item\n\nfourth"
-    );
+    assert_eq!(source(&editor, cx), src);
 }
 
 #[gpui::test]
-fn a_click_on_a_text_handle_is_still_a_click(cx: &mut TestAppContext) {
-    let (editor, cx) = open_padded(cx, "first\n\nsecond");
-    let b = top_bounds(&editor, cx);
-    let at = gpui::point(b[1].left() - px(10.), b[1].center().y);
-    cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
-    cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
-    draw(cx);
-    assert_eq!(source(&editor, cx), "first\n\nsecond");
-    assert_eq!(caret_pos(&editor, cx), (1, 0));
+fn text_blocks_have_no_drag_handle(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "first\n\n- item\n\n> quote\n\n# head");
+    for b in top_bounds(&editor, cx) {
+        let at = gpui::point(b.left() - px(4.), b.center().y);
+        assert!(editor.read_with(cx, |e, _| e.drag_handle_at(at).is_none()));
+        let inside = gpui::point(b.left() + px(2.), b.center().y);
+        cx.simulate_mouse_down(inside, MouseButton::Left, Modifiers::none());
+        let far = gpui::point(inside.x, inside.y + px(60.));
+        cx.simulate_mouse_move(far, Some(MouseButton::Left), Modifiers::none());
+        cx.simulate_mouse_up(far, MouseButton::Left, Modifiers::none());
+        draw(cx);
+        assert!(editor.read_with(cx, |e, _| e.block_drag.is_none() && !e.grip_hover));
+        assert_eq!(source(&editor, cx), "first\n\n- item\n\n> quote\n\n# head");
+    }
 }
 
 #[gpui::test]
 fn dragging_a_table_by_its_handle_moves_it_whole(cx: &mut TestAppContext) {
     let src = "a\n\n| x | y |\n| --- | --- |\n| 1 | 2 |\n\nb";
-    let (editor, cx) = open_padded(cx, src);
+    let (editor, cx) = open(cx, src);
     let b = top_bounds(&editor, cx);
     assert_eq!(b.len(), 3);
     let start = gpui::point(b[1].left() - px(4.), b[1].center().y);
