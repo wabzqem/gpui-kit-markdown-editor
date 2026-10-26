@@ -5,6 +5,19 @@ All notable changes to this crate are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Design decisions (D1-D22) are in
 [`docs/design.md`](docs/design.md).
 
+## [0.1.1] - Unreleased
+
+### Fixed
+- Pasted URLs keep their exact text in the Markdown source. Bare `http(s)://`
+  URLs are written as is, instead of with a backslash before every `_` and
+  `&`, which broke them for hosts that send the source on (such as a chat
+  composer). A URL that runs into other text is written as `<url>`.
+- A link whose text is its own URL is written as an autolink, `<url>`.
+- Literal text and link destinations escape less: an underscore between
+  letters or digits (`snake_case`) and an `&` that does not start a character
+  reference are written without a backslash. Text still parses back to the
+  same content.
+
 ## [0.1.0] - 2026-10-21
 
 First release. A block-based WYSIWYG Markdown editor for GPUI, rendered

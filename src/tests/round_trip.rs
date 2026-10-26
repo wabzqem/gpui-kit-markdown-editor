@@ -437,3 +437,148 @@ impl MarkdownPlugin for MathPlugin {
         }
     }
 }
+
+// Pasted URLs must reach the host verbatim (Tower sends the source to agents),
+// and still mean the same thing when the source is parsed back.
+const SURVEY_URL: &str = "https://peopleteam.az1.qualtrics.com/jfe/form/SV_0rN7QqpdMbvRWSO?Q_TS_ID=TS_AHyff6vCpqBsjLL&Q_TS_RS=Self&Q_EE_ANON=1&_=1";
+
+fn pasted(text: &str) -> BlockEditorModel {
+    let mut editor = model("");
+    editor.insert_text(text, EditOrigin::Paste).unwrap();
+    editor
+}
+
+fn only_text(editor: &BlockEditorModel) -> String {
+    editor
+        .document()
+        .leaves()
+        .map(|leaf| leaf.text().unwrap_or_default().to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn pasted_bare_url_is_written_verbatim_and_round_trips() {
+    for url in [
+        SURVEY_URL,
+        "https://example.com/a_b/c?x=1&y=2#frag_ment",
+        "http://example.com/~user/file_(1).txt",
+        "https://example.com/path/_leading_and_trailing_",
+        "https://example.com/?a=_&b=__c__&d=1",
+        "https://a.com/x*y*",
+        "https://a.com/`code`/[x]/$5/\\path",
+        "https://a.com/?q=&amp;x_",
+        "https://a.com/?q=1&amp;",
+    ] {
+        for text in [
+            url.to_string(),
+            format!("see {url} now"),
+            format!("({url})"),
+        ] {
+            let editor = pasted(&text);
+            let source = editor.source();
+            assert!(source.contains(url), "{text:?} -> {source:?}");
+            let reparsed = model(&source);
+            assert_eq!(only_text(&reparsed), text, "{text:?} -> {source:?}");
+            // Second generation (now an autolink) is stable and still verbatim.
+            let again = model(&reparsed.source());
+            assert_eq!(
+                only_text(&again),
+                text,
+                "{source:?} -> {:?}",
+                reparsed.source()
+            );
+            // GFM leaves trailing punctuation out of the link, as literal text.
+            let linked = url.trim_end_matches(['*', '_', '~', '.', ',', ':', ';', '!', '?', '\'']);
+            assert!(
+                reparsed.source().contains(linked),
+                "2nd gen {text:?}: {source:?} -> {:?}",
+                reparsed.source()
+            );
+        }
+    }
+}
+
+#[test]
+fn survey_url_source_has_no_backslashes() {
+    assert_eq!(pasted(SURVEY_URL).source(), SURVEY_URL);
+    assert_eq!(
+        model(&format!("<{SURVEY_URL}>")).source(),
+        format!("<{SURVEY_URL}>")
+    );
+    assert_eq!(model(SURVEY_URL).source(), format!("<{SURVEY_URL}>"));
+    let labelled = model(&format!("[survey]({SURVEY_URL})")).source();
+    assert_eq!(labelled, format!("[survey]({SURVEY_URL})"));
+}
+
+#[test]
+fn snake_case_and_plain_ampersands_need_no_escapes() {
+    assert_eq!(
+        pasted("call my_function_name & co").source(),
+        "call my_function_name & co"
+    );
+    let reparsed = model("call my_function_name & co");
+    assert_eq!(only_text(&reparsed), "call my_function_name & co");
+}
+
+#[test]
+fn real_markdown_still_escaped_in_literal_prose() {
+    let literal = r"literal _emphasis_ *stars* &copy; &#38; [brackets] \ <tag> ~x~ $5 a|b __init__";
+    let editor = pasted(literal);
+    let source = editor.source();
+    let reparsed = model(&source);
+    assert_eq!(only_text(&reparsed), literal, "{source}");
+    let leaf = reparsed.document().leaves().next().unwrap().id();
+    let inline = reparsed.doc().inline(leaf).unwrap();
+    assert!(
+        inline.pieces().all(|(_, mark, atom)| !mark.italic
+            && !mark.bold
+            && !mark.strikethrough
+            && mark.link.is_none()
+            && atom.is_none()),
+        "{source}"
+    );
+}
+
+#[test]
+fn urls_that_are_not_autolinks_keep_escaping() {
+    // Glued to a word: not a GFM autolink literal, so stays escaped literal text.
+    for text in [
+        "xhttps://a.com/_x_",
+        "see https:// _x_",
+        "https://a.com/x<y_z>",
+        "https://a.com/x|y_z",
+        "https://a.com/x>y",
+        "https://a.com/x_*y*z",
+    ] {
+        let source = pasted(text).source();
+        let reparsed = model(&source);
+        assert_eq!(only_text(&reparsed), text, "{text:?} -> {source:?}");
+    }
+}
+
+#[test]
+fn link_destinations_keep_entity_escapes_only() {
+    let original = model(r"[label](https://example.test/?q=\&copy;&a_b=1)");
+    let source = original.source();
+    assert_eq!(source, r"[label](https://example.test/?q=\&copy;&a_b=1)");
+    let reloaded = model(&source);
+    let leaf = reloaded.document().leaves().next().unwrap().id();
+    let url = reloaded
+        .doc()
+        .inline(leaf)
+        .unwrap()
+        .pieces()
+        .find_map(|(_, mark, _)| mark.link.as_ref().map(|link| link.url.to_string()));
+    assert_eq!(url.as_deref(), Some("https://example.test/?q=&copy;&a_b=1"));
+}
+
+#[test]
+fn code_content_is_not_unescaped() {
+    let content = r"a_b&c=1\_literal https://x.com/_y_";
+    let mut code = model("");
+    code.run(EditorCommand::ToggleMark(MarkKind::Code)).unwrap();
+    code.insert_text(content, EditOrigin::Paste).unwrap();
+    let reloaded = model(&code.source());
+    assert_eq!(only_text(&reloaded), content);
+}
