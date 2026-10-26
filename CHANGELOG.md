@@ -5,7 +5,7 @@ All notable changes to this crate are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Design decisions (D1-D22) are in
 [`docs/design.md`](docs/design.md).
 
-## [0.1.1] - Unreleased
+## [0.1.1] - 2026-10-27
 
 ### Fixed
 - Pasted URLs keep their exact text in the Markdown source. Bare `http(s)://`
