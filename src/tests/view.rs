@@ -3027,9 +3027,10 @@ fn d17_own_copy_of_special_characters_pastes_literally_and_undoes_once(cx: &mut 
     });
     assert_eq!(leaf_text, "T2*3*4 and snake_case # [x]");
     keys(cx, "M-z");
+    // An intraword underscore needs no escape, so it is written without one.
     assert_eq!(
         source(&editor, cx),
-        "2\\*3\\*4 and snake\\_case # \\[x\\]\n\nT"
+        "2\\*3\\*4 and snake_case # \\[x\\]\n\nT"
     );
 }
 

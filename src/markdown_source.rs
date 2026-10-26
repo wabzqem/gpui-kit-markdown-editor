@@ -15,10 +15,10 @@ pub(crate) fn markdown_destination(value: &str) -> String {
         .chars()
         .any(|ch| ch.is_whitespace() || matches!(ch, '(' | ')' | '<' | '>'));
     let mut escaped = String::new();
-    for ch in value.chars() {
+    for (ix, ch) in value.char_indices() {
         match ch {
             '\\' => escaped.push_str("\\\\"),
-            '&' => escaped.push_str("\\&"),
+            '&' if entity_like(&value[ix + 1..]) => escaped.push_str("\\&"),
             '<' => escaped.push_str("\\<"),
             '>' => escaped.push_str("\\>"),
             '\n' => escaped.push_str("&#10;"),
@@ -33,12 +33,17 @@ pub(crate) fn markdown_destination(value: &str) -> String {
     }
 }
 pub(crate) fn markdown_title(value: &str) -> String {
-    let escaped = value
-        .replace('\\', "\\\\")
-        .replace('&', "\\&")
-        .replace('"', "\\\"")
-        .replace('\n', "&#10;")
-        .replace('\r', "&#13;");
+    let mut escaped = String::with_capacity(value.len());
+    for (ix, ch) in value.char_indices() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '&' if entity_like(&value[ix + 1..]) => escaped.push_str("\\&"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("&#10;"),
+            '\r' => escaped.push_str("&#13;"),
+            _ => escaped.push(ch),
+        }
+    }
     format!("\"{escaped}\"")
 }
 
@@ -102,21 +107,53 @@ impl MarkdownSource {
             return;
         }
         let mut escaped = String::with_capacity(text.len());
-        for ch in text.chars() {
-            if ch == '\n' {
+        let mut urls = url_spans(text).into_iter().peekable();
+        let mut prev: Option<char> = None;
+        let mut ix = 0;
+        while ix < text.len() {
+            // A bare URL is written as is: the GFM autolink literal it parses
+            // back to is the same text, and escapes would be pasted into it.
+            if let Some(url) = urls.next_if(|url| url.range.start == ix) {
+                let source = &text[url.range.clone()];
+                if url.angled {
+                    escaped.push('<');
+                    escaped.push_str(source);
+                    escaped.push('>');
+                    prev = Some('>');
+                } else {
+                    escaped.push_str(source);
+                    prev = source.chars().last();
+                }
+                ix = url.range.end;
+                continue;
+            }
+            let Some(ch) = text[ix..].chars().next() else {
+                break;
+            };
+            let rest = &text[ix + ch.len_utf8()..];
+            let next = rest.chars().next();
+            match ch {
                 // Hard breaks, including terminal/table/styled breaks, need
                 // an explicit semantic form. Backslash-newline at EOF reparses
                 // as a literal backslash; whitespace hoisting can break marks.
-                escaped.push_str("<br>");
-                continue;
+                '\n' => escaped.push_str("<br>"),
+                // An underscore between alphanumerics can neither open nor
+                // close emphasis (`snake_case`), so it needs no escape.
+                '_' if prev.is_some_and(char::is_alphanumeric)
+                    && next.is_some_and(char::is_alphanumeric) =>
+                {
+                    escaped.push(ch)
+                }
+                // `&` is only special when it starts a character reference.
+                '&' if !entity_like(rest) => escaped.push(ch),
+                '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '~' | '$' | '&' | '|' => {
+                    escaped.push('\\');
+                    escaped.push(ch);
+                }
+                _ => escaped.push(ch),
             }
-            if matches!(
-                ch,
-                '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '~' | '$' | '&' | '|'
-            ) {
-                escaped.push('\\');
-            }
-            escaped.push(ch);
+            prev = Some(ch);
+            ix += ch.len_utf8();
         }
         self.push_marked(&escaped, mark);
     }
@@ -356,6 +393,12 @@ fn wrap_with_mark(text: &str, mark: &TextMark) -> String {
         out = format!("=={}==", out);
     }
     if let Some(link) = &mark.link {
+        // A link whose text is its own URL is written as an autolink, which
+        // keeps the URL verbatim: autolinks interpret neither escapes nor
+        // character references.
+        if link.title.is_none() && out == link.url.as_ref() && autolink_safe(&link.url) {
+            return format!("<{}>", link.url);
+        }
         out = match &link.title {
             Some(title) => format!(
                 "[{}]({} {})",
@@ -367,4 +410,97 @@ fn wrap_with_mark(text: &str, mark: &TextMark) -> String {
         };
     }
     out
+}
+
+/// Whether `rest`, the text after an `&`, would make it a character reference
+/// (`&amp;`, `&#38;`, `&#x26;`) that a Markdown parser decodes. Any other `&`
+/// is literal and needs no escape.
+fn entity_like(rest: &str) -> bool {
+    let (body, digit): (&str, fn(&char) -> bool) = match rest.strip_prefix('#') {
+        Some(numeric) => match numeric.strip_prefix(['x', 'X']) {
+            Some(hex) => (hex, char::is_ascii_hexdigit),
+            None => (numeric, char::is_ascii_digit),
+        },
+        None if rest.starts_with(|ch: char| ch.is_ascii_alphabetic()) => {
+            (rest, char::is_ascii_alphanumeric)
+        }
+        None => return false,
+    };
+    let len = body.chars().take_while(digit).count();
+    len > 0 && body[len..].starts_with(';')
+}
+
+/// A URL found in literal text, and how to write it so that it parses back to
+/// exactly the same text.
+struct UrlSpan {
+    range: std::ops::Range<usize>,
+    /// Write it as `<url>`. A bare GFM autolink literal runs to the next
+    /// whitespace or `<` and takes any backslash along as text, so a URL that
+    /// is followed by something that needs escaping must be closed explicitly.
+    angled: bool,
+}
+
+/// `http(s)://` URLs in literal text. A URL must start the text or follow
+/// whitespace or `(`, as GFM autolink literals do; it is written bare when it
+/// runs to whitespace or the end of the text, and as an autolink otherwise.
+/// Autolinks interpret neither escapes nor character references, and bare
+/// autolink literals leave trailing punctuation as literal text that can only
+/// close emphasis that nothing opens.
+fn url_spans(text: &str) -> Vec<UrlSpan> {
+    let mut spans = Vec::new();
+    let mut prev: Option<char> = None;
+    let mut ix = 0;
+    while ix < text.len() {
+        let rest = &text[ix..];
+        let scheme = ["https://", "http://"].into_iter().find(|scheme| {
+            rest.get(..scheme.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(scheme))
+        });
+        let boundary = prev.is_none_or(|ch| ch.is_whitespace() || ch == '(');
+        if let (Some(scheme), true) = (scheme, boundary)
+            && rest[scheme.len()..].starts_with(|ch: char| ch.is_ascii_alphanumeric())
+        {
+            // `|` would split a table cell, `<`/`>` cannot be inside `<url>`.
+            let len = rest
+                .find(|ch: char| {
+                    ch.is_whitespace() || ch.is_control() || matches!(ch, '<' | '>' | '|')
+                })
+                .unwrap_or(rest.len());
+            let url = &rest[..len];
+            let followed_by_space = rest[len..].chars().next().is_none_or(char::is_whitespace);
+            let has_reference = url
+                .match_indices('&')
+                .any(|(at, _)| entity_like(&url[at + 1..]));
+            spans.push(UrlSpan {
+                range: ix..ix + len,
+                angled: !followed_by_space || has_reference,
+            });
+            prev = url.chars().last();
+            ix += len;
+            continue;
+        }
+        let Some(ch) = rest.chars().next() else {
+            break;
+        };
+        prev = Some(ch);
+        ix += ch.len_utf8();
+    }
+    spans
+}
+
+/// Whether `url` can be written as `<url>`: an absolute URI autolink, which
+/// has a scheme and no whitespace, `<`, `>` or control characters.
+fn autolink_safe(url: &str) -> bool {
+    let Some((scheme, rest)) = url.split_once(':') else {
+        return false;
+    };
+    (2..=32).contains(&scheme.len())
+        && scheme.starts_with(|ch: char| ch.is_ascii_alphabetic())
+        && scheme
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '.' | '-'))
+        && !rest.is_empty()
+        && !url
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch.is_control() || matches!(ch, '<' | '>'))
 }
