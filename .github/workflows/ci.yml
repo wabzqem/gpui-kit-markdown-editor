@@ -11,6 +11,10 @@ env:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        dependencies: [locked, latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -25,9 +29,12 @@ jobs:
             libasound2-dev libvulkan1 mesa-vulkan-drivers xvfb
       - name: fmt
         run: cargo fmt --all -- --check
+      - name: Update to the newest compatible gpui-kit
+        if: matrix.dependencies == 'latest'
+        run: cargo update -p gpui-kit
       - name: clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
       - name: tests (under a virtual display)
-        run: xvfb-run -a cargo test
+        run: xvfb-run -a cargo test --locked --all-targets
       - name: build the example
-        run: cargo build --example story
+        run: cargo build --locked --example story

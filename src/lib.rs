@@ -40,6 +40,9 @@
 //! The scroll handle is optional: without it, blocks outside the visible
 //! area are still culled, but moving the caret never scrolls (a no-op).
 
+// Resolve existing GPUI paths and macro expansions through the Kit facade.
+extern crate gpui_kit as gpui;
+
 mod command;
 mod cull;
 mod direct;

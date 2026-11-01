@@ -15,11 +15,13 @@ and culling of off-screen blocks.
 
 ```toml
 [dependencies]
-gpui-kit = "0.8.0"
+gpui-kit = "0.8"
 gpui-kit-markdown-editor = { git = "https://github.com/wabzqem/gpui-kit-markdown-editor" }
 ```
 
-The library is imported as `markdown_editor`.
+The library is imported as `markdown_editor`. The editor uses GPUI through
+gpui-kit, without a direct `gpui-pre` pin, so compatible gpui-kit updates
+can select their matching GPUI version.
 
 ```rust
 use gpui_kit::*;
