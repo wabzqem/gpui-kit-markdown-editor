@@ -1,6 +1,9 @@
 //! A small app around the block editor: a toolbar, the editor, and a live
 //! Markdown preview. Run it with `cargo run --example story`.
 
+#[cfg(test)]
+extern crate gpui_kit as gpui;
+
 use gpui_kit::component::StyledExt as _;
 use gpui_kit::component::{
     button::Button,
@@ -8,6 +11,7 @@ use gpui_kit::component::{
     input::{Input, InputState},
     v_flex,
 };
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     App, AppContext as _, Context, Entity, Focusable as _, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _,
@@ -16,6 +20,12 @@ use gpui_kit::{
 use markdown_editor::{
     BlockEditor, BlockEditorEvent, BlockEditorState, BlockKind, EditorCommand, MarkKind, TableEdit,
 };
+
+/// Keep wheel events in a pane from also scrolling the story/gallery.
+#[allow(deprecated, reason = "gpui-kit 0.8.0 does not yet provide on_scroll")]
+fn contain_scroll<T: gpui_kit::InteractiveElement>(pane: T) -> T {
+    pane.on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+}
 
 /// A titled, full-width section.
 fn section(title: impl Into<SharedString>) -> gpui_kit::Div {
@@ -341,7 +351,7 @@ impl Render for BlockEditorStory {
                         .overflow_y_scroll()
                         // Scroll containment: wheel events over this pane
                         // must not also scroll the story/gallery.
-                        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                        .map(contain_scroll)
                         .track_scroll(&self.scroll)
                         .child(BlockEditor::new(&self.editor).min_h_full().p_2()),
                 ),
@@ -354,7 +364,7 @@ impl Render for BlockEditorStory {
                         .w_full()
                         .max_h(rems(28.))
                         .overflow_y_scroll()
-                        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                        .map(contain_scroll)
                         .text_xs()
                         .whitespace_normal()
                         .child(self.markdown.clone()),

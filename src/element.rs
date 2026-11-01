@@ -20,6 +20,7 @@ use gpui::{
 };
 
 use super::{cull::Measured, id::BlockId, projection::Snapshot, state::*, style::BlockEditorStyle};
+use crate::support::secondary_modifier;
 use gpui_kit::base::StyledExt as _;
 use gpui_kit::base::text::editor_host::{
     BlockNode, FlowPosition, RenderContext, collect_leaf_geometry,
@@ -743,7 +744,9 @@ impl Element for EditorRoot {
             entity.update(cx, |state, cx| {
                 let focus = state.focus_handle.clone();
                 window.focus(&focus, cx);
-                if event.modifiers.secondary() && state.follow_link_at(event.position, cx) {
+                if secondary_modifier().is_subset_of(&event.modifiers)
+                    && state.follow_link_at(event.position, cx)
+                {
                     return;
                 }
                 state.dragging = true;
@@ -763,7 +766,11 @@ impl Element for EditorRoot {
             }
             if event.pressed_button.is_none() {
                 entity.update(cx, |state, cx| {
-                    state.hover_at(event.position, event.modifiers.secondary(), cx)
+                    state.hover_at(
+                        event.position,
+                        secondary_modifier().is_subset_of(&event.modifiers),
+                        cx,
+                    )
                 });
                 return;
             }

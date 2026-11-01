@@ -5,6 +5,13 @@ All notable changes to this crate are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Design decisions (D1-D22) are in
 [`docs/design.md`](docs/design.md).
 
+## [0.1.2] - 2026-11-01
+
+### Fixed
+- Use GPUI through gpui-kit instead of directly pinning `gpui-pre`, so the
+  editor follows compatible gpui-kit 0.8 updates without a new release.
+  Test support also comes through gpui-kit.
+
 ## [0.1.1] - 2026-10-27
 
 ### Fixed

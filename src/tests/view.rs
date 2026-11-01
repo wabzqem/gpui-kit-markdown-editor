@@ -7,6 +7,7 @@ use gpui::{
     Styled as _, TestAppContext, VisualTestContext, Window, div, px,
 };
 
+use crate::support::secondary_modifier;
 use crate::{BlockEditor, BlockEditorState, BlockKind, BlockPosition, BlockSelection};
 
 struct Root(Entity<BlockEditorState>);
@@ -1870,7 +1871,7 @@ fn d14_hover_and_secondary_click_on_link(cx: &mut TestAppContext) {
     assert_eq!(editor.read_with(cx, |e, _| e.hovered_link().cloned()), None);
     // A plain click edits; Cmd/Ctrl+click emits LinkClicked, no edit.
     let before = editor.read_with(cx, |e, _| e.model.selection.clone());
-    cx.simulate_click(on, Modifiers::secondary_key());
+    cx.simulate_click(on, secondary_modifier());
     let clicked: Vec<_> = log
         .borrow()
         .iter()
@@ -2180,7 +2181,7 @@ fn d16_checkbox_click_keeps_caret_and_shows_hand(cx: &mut TestAppContext) {
     let l = first_line_point(&editor, cx, 2, px(2.));
     cx.simulate_mouse_move(l, None, Modifiers::none());
     assert!(!editor.read_with(cx, |e, _| e.pointer_hand));
-    cx.simulate_mouse_move(l, None, Modifiers::secondary_key());
+    cx.simulate_mouse_move(l, None, secondary_modifier());
     assert!(editor.read_with(cx, |e, _| e.pointer_hand));
 }
 

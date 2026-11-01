@@ -4,7 +4,16 @@
 
 use std::{ops::Range, time::Duration};
 
-use gpui::{Bounds, Context, Pixels, Task, point, px, size};
+use gpui::{Bounds, Context, Modifiers, Pixels, Task, point, px, size};
+
+/// The native secondary modifier: Command on macOS, Control elsewhere.
+pub(crate) fn secondary_modifier() -> Modifiers {
+    Modifiers {
+        platform: cfg!(target_os = "macos"),
+        control: cfg!(not(target_os = "macos")),
+        ..Modifiers::none()
+    }
+}
 
 // ---- Word ranges (same rules as the kit's text selection) ----
 
