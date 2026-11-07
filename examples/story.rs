@@ -22,9 +22,8 @@ use markdown_editor::{
 };
 
 /// Keep wheel events in a pane from also scrolling the story/gallery.
-#[allow(deprecated, reason = "gpui-kit 0.8.0 does not yet provide on_scroll")]
 fn contain_scroll<T: gpui_kit::InteractiveElement>(pane: T) -> T {
-    pane.on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+    pane.on_scroll(|_, _, cx| cx.stop_propagation())
 }
 
 /// A titled, full-width section.
