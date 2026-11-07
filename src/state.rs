@@ -27,6 +27,11 @@ use crate::support::BlinkCursor;
 use gpui_kit::base::text::MarkdownExtensions;
 
 pub(crate) const CONTEXT: &str = "BlockEditor";
+/// Side of the whole-table corner handle, in px.
+pub(crate) const TABLE_HANDLE_SIZE: f32 = 14.;
+/// How far the handle sits up and left of the table frame's corner; the
+/// rest overlaps the corner cell's padding, which has no text.
+pub(crate) const TABLE_HANDLE_OUTSET: f32 = 8.;
 
 actions!(
     block_editor,
@@ -1822,17 +1827,50 @@ impl BlockEditorState {
         ))
     }
 
-    /// The table or code block whose left edge (the strip left of its
-    /// text, inside the block's padding) is under `at`.
+    /// Whole-table handles: a square straddling each table frame's outer
+    /// top-left corner, clear of the column grips (above the cells) and the
+    /// row grips (left of the cells).
+    pub(crate) fn table_handles(&self) -> Vec<(BlockId, Bounds<Pixels>)> {
+        use gpui::{point, px, size};
+        self.frame
+            .borrow()
+            .grids
+            .iter()
+            .map(|g| {
+                let o = g.bounds.origin;
+                let s = px(TABLE_HANDLE_SIZE);
+                (
+                    g.table,
+                    Bounds::new(
+                        point(o.x - px(TABLE_HANDLE_OUTSET), o.y - px(TABLE_HANDLE_OUTSET)),
+                        size(s, s),
+                    ),
+                )
+            })
+            .collect()
+    }
+
+    /// The table whose corner handle (with a little slack) is under `at`.
+    pub(crate) fn table_handle_at(&self, at: Point<Pixels>) -> Option<BlockId> {
+        self.table_handles()
+            .into_iter()
+            .find(|(_, b)| b.dilate(gpui::px(2.)).contains(&at))
+            .map(|(table, _)| table)
+    }
+
+    /// The table (by its corner handle) or code block (by the strip left of
+    /// its text, inside the block's padding) whose handle is under `at`.
     pub(crate) fn block_handle_at(&self, at: Point<Pixels>) -> Option<BlockId> {
-        let frame = self.frame.borrow();
         use gpui::px;
         let in_edge = |b: &Bounds<Pixels>| {
             at.y >= b.top() && at.y < b.bottom() && at.x < b.left() && at.x >= b.left() - px(24.)
         };
-        if let Some((table, _)) = frame.tables.iter().find(|(_, b)| in_edge(b)) {
-            return Some(*table);
+        // Tables: only the corner handle, so the left edge stays free for
+        // the row grips (no two "select" targets side by side).
+        if let Some(table) = self.table_handle_at(at) {
+            return Some(table);
         }
+        let frame = self.frame.borrow();
         frame
             .leaves
             .iter()

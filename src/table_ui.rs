@@ -14,8 +14,8 @@ use gpui_kit::base::text::editor_host::ColumnAlign;
 
 /// Extra reach around a table where its grips still show.
 const REACH: f32 = 28.;
-/// Row grips sit this far left of the table frame, left of the strip that
-/// node-selects the table (`block_handle_at`, the 16px left of the cell text).
+/// Row grips sit this far left of the table frame. The whole table is
+/// selected / dragged by its separate corner handle (`table_handles`).
 const ROW_GRIP_X: f32 = 8.;
 
 /// The open grip menu.

@@ -136,8 +136,9 @@ shows a grip above the column and left of the row; clicking it selects that
 column / row and opens a menu (insert, delete, column alignment). Cmd/Ctrl-click a link emits `LinkClicked`; the editor never
 opens a browser.
 
-Drag to reorder (D22): drag a table or code block by its edge handle (the
-strip left of it; the pointer becomes an open hand) and a line shows where it
+Drag to reorder (D22): drag a table by the small square handle at its
+top-left corner, or a code block by the strip left of it (the pointer becomes
+an open hand), and a line shows where it
 will drop between top-level blocks. One undo step. Other blocks are not
 draggable.
 

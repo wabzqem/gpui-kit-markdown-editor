@@ -1568,8 +1568,8 @@ fn empty_cell_click_and_table_node_backspace(cx: &mut TestAppContext) {
     assert_eq!(source(&editor, cx), "b");
 }
 
-/// QA: the block handle. A click in the left edge of a table or code block
-/// (left of its text) selects it as a node; Backspace then deletes it.
+/// QA: the block handle. A click on a table's corner handle, or in the left
+/// edge of a code block (left of its text), selects it as a node; Backspace then deletes it.
 #[gpui::test]
 fn left_edge_click_node_selects_table_and_code_block(cx: &mut TestAppContext) {
     for src in [
@@ -1577,12 +1577,16 @@ fn left_edge_click_node_selects_table_and_code_block(cx: &mut TestAppContext) {
         "a\n\n```\ncode\n```\n\nb",
     ] {
         let (editor, cx) = open(cx, src);
-        let at = editor.read_with(cx, |e, _| {
-            let id = e.model().document().leaves().nth(1).unwrap().id();
-            let b = e.frame.borrow().leaf(id).unwrap().bounds();
-            gpui::point(b.left() - px(4.), b.center().y)
-        });
-        assert!(at.x > px(0.), "{src}: the edge is inside the editor");
+        let at = if src.contains('|') {
+            table_handle_point(&editor, cx)
+        } else {
+            editor.read_with(cx, |e, _| {
+                let id = e.model().document().leaves().nth(1).unwrap().id();
+                let b = e.frame.borrow().leaf(id).unwrap().bounds();
+                gpui::point(b.left() - px(4.), b.center().y)
+            })
+        };
+        assert!(at.x > px(0.), "{src}: the handle is inside the editor");
         cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
         cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
         draw(cx);
@@ -4264,7 +4268,7 @@ fn dragging_a_table_by_its_handle_moves_it_whole(cx: &mut TestAppContext) {
     let (editor, cx) = open(cx, src);
     let b = top_bounds(&editor, cx);
     assert_eq!(b.len(), 3);
-    let start = gpui::point(b[1].left() - px(4.), b[1].center().y);
+    let start = table_handle_point(&editor, cx);
     cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::none());
     let over = gpui::point(start.x, b[0].top() + px(1.));
     cx.simulate_mouse_move(over, Some(MouseButton::Left), Modifiers::none());
@@ -4273,5 +4277,47 @@ fn dragging_a_table_by_its_handle_moves_it_whole(cx: &mut TestAppContext) {
     assert_eq!(
         source(&editor, cx),
         "| x | y |\n| --- | --- |\n| 1 | 2 |\n\na\n\nb"
+    );
+}
+
+/// The part of the first table's corner handle inside the editor (the test
+/// root has no padding, so the outer half is off-window).
+fn table_handle_point(
+    editor: &Entity<BlockEditorState>,
+    cx: &mut VisualTestContext,
+) -> gpui::Point<Pixels> {
+    editor.read_with(cx, |e, _| {
+        let (_, h) = e.table_handles()[0];
+        gpui::point(h.right() - px(2.), h.bottom() - px(2.))
+    })
+}
+
+/// The whole-table handle is a square at the frame's outer top-left corner,
+/// clear of the row and column grips; the table's left edge (where the row
+/// grips are) no longer node-selects the table.
+#[gpui::test]
+fn table_corner_handle_is_separate_from_row_and_column_grips(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "a\n\n| x | y |\n| --- | --- |\n| 1 | 2 |\n\nb");
+    let (table, handle, grid) = editor.read_with(cx, |e, _| {
+        let (table, handle) = e.table_handles()[0];
+        (table, handle, e.frame.borrow().grids[0].bounds)
+    });
+    assert_eq!(handle.size.width, handle.size.height, "square");
+    assert!(
+        handle.left() < grid.left() && handle.top() < grid.top(),
+        "outside, top-left"
+    );
+    // No grip of any row or column overlaps it, wherever the pointer is.
+    for at in [handle.center(), grid.origin, grid.center()] {
+        for (_, _, grip) in editor.read_with(cx, |e, _| e.table_grips_at(at)) {
+            assert!(!grip.intersects(&handle), "{grip:?} vs {handle:?}");
+        }
+    }
+    let row_grip_spot = gpui::point(grid.left() + px(2.), grid.center().y);
+    assert!(editor.read_with(cx, |e, _| e.block_handle_at(row_grip_spot).is_none()));
+    let on_handle = table_handle_point(&editor, cx);
+    assert_eq!(
+        editor.read_with(cx, |e, _| e.drag_handle_at(on_handle)),
+        Some(table)
     );
 }

@@ -14,6 +14,11 @@ All notable changes to this crate are documented here. The format follows
   (including Code block). Off by default. The unbound `ToggleToolbar`
   action and `BlockEditorState::set_toolbar_hidden` hide it.
 
+### Changed
+- The whole-table select / drag handle is now a small square with a grid
+  glyph at the table's outer top-left corner, separate from the row and
+  column grips; a table's left edge no longer selects the whole table.
+
 ### Fixed
 - `SetBlockKind(Paragraph | Heading)` (and Normal text, Cmd/Ctrl+Alt+0) now
   turns a code block back into text, one block per line, instead of doing
