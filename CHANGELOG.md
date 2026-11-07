@@ -5,6 +5,15 @@ All notable changes to this crate are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Design decisions (D1-D22) are in
 [`docs/design.md`](docs/design.md).
 
+## [0.1.3] - 2026-11-07
+
+### Changed
+- Require gpui-kit 0.9 for normal use and test support, following its matching
+  GPUI backend through the Kit facade without a direct GPUI dependency.
+  The public editor API and behavior are unchanged.
+- Use the renamed `on_scroll` handler in the story example, preserving pane
+  scroll containment without the deprecated `on_scroll_wheel` allowance.
+
 ## [0.1.2] - 2026-11-01
 
 ### Fixed

@@ -15,7 +15,7 @@ and culling of off-screen blocks.
 
 ```toml
 [dependencies]
-gpui-kit = "0.8"
+gpui-kit = "0.9"
 gpui-kit-markdown-editor = { git = "https://github.com/wabzqem/gpui-kit-markdown-editor" }
 ```
 
