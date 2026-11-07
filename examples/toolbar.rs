@@ -18,25 +18,27 @@ impl Render for Demo {
 }
 
 fn main() {
-    gpui_kit::application().run(|cx| {
-        gpui_kit::init(cx);
-        markdown_editor::init(cx);
-        // Opt-in shortcut; the editor binds nothing for the toolbar itself.
-        let keys = if cfg!(target_os = "macos") {
-            "cmd-shift-t"
-        } else {
-            "ctrl-shift-t"
-        };
-        cx.bind_keys([KeyBinding::new(keys, ToggleToolbar, Some("BlockEditor"))]);
-        gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
-            cx.new(|cx| Demo {
-                editor: cx.new(|cx| {
-                    BlockEditorState::new(window, cx).with_source(
-                        "# Toolbar\n\nSelect text and use **Bold**, *Italic* or `code`.",
-                    )
-                }),
+    gpui_kit::application()
+        .with_assets(gpui_kit::assets::AllAssets)
+        .run(|cx| {
+            gpui_kit::init(cx);
+            markdown_editor::init(cx);
+            // Opt-in shortcut; the editor binds nothing for the toolbar itself.
+            let keys = if cfg!(target_os = "macos") {
+                "cmd-shift-t"
+            } else {
+                "ctrl-shift-t"
+            };
+            cx.bind_keys([KeyBinding::new(keys, ToggleToolbar, Some("BlockEditor"))]);
+            gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+                cx.new(|cx| Demo {
+                    editor: cx.new(|cx| {
+                        BlockEditorState::new(window, cx).with_source(
+                            "# Toolbar\n\nSelect text and use **Bold**, *Italic* or `code`.",
+                        )
+                    }),
+                })
             })
-        })
-        .expect("failed to open window");
-    });
+            .expect("failed to open window");
+        });
 }
