@@ -15,6 +15,9 @@ All notable changes to this crate are documented here. The format follows
   action and `BlockEditorState::set_toolbar_hidden` hide it.
 
 ### Changed
+- Inline mark input rules (`code`, *italic*, **bold**, ~~strike~~) also fire
+  when the closing delimiter is typed first and the opening one is typed in
+  front of the text afterwards; the caret stays before the new span.
 - The whole-table select / drag handle is now a small square with a grid
   glyph at the table's outer top-left corner, separate from the row and
   column grips; a table's left edge no longer selects the whole table.

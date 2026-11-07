@@ -2588,7 +2588,7 @@ impl BlockEditorState {
         let Some(inline) = self.model.doc.inline(caret.block) else {
             return;
         };
-        let Some((open, close, kind)) = mark_rule(inline, caret.offset) else {
+        let Some((open, close, kind, typed_opening)) = mark_rule(inline, caret.offset) else {
             return;
         };
         let block = caret.block;
@@ -2614,7 +2614,12 @@ impl BlockEditorState {
         let _ = self.model.run(EditorCommand::ApplyMark(
             super::marks::MarkChange::new().set(kind),
         ));
-        let _ = self.model.set_selection(BlockSelection::caret(pos(end)));
+        // The caret stays where the user typed: after the span when the
+        // closing delimiter came last, before it when the opening one did.
+        let caret_at = if typed_opening { open.start } else { end };
+        let _ = self
+            .model
+            .set_selection(BlockSelection::caret(pos(caret_at)));
         // Text typed next is outside the new span.
         let after = super::marks::MarkChange::new()
             .clear(kind)
@@ -2959,34 +2964,25 @@ fn code_fence(text: &str) -> Option<String> {
         .then(|| lang.to_string())
 }
 
-/// The `(opening delimiter, closing delimiter, mark)` of an inline-mark input
-/// rule whose closing delimiter ends at `caret`, if any. Nothing fires inside
-/// inline code, across an atom, or around empty / space-padded content.
+/// The `(opening delimiter, closing delimiter, mark, typed_opening)` of an
+/// inline-mark input rule completed by the delimiter just typed before
+/// `caret`. Either order works: the closing delimiter typed after the text
+/// (`*it*`), or, when the text already ends with one, the opening delimiter
+/// typed in front of it (`it*`, caret moved back, `*`). Nothing fires inside
+/// inline code, across an atom, around empty / space-padded content, or for
+/// an escaped (`\`) delimiter.
 fn mark_rule(
     inline: &super::inline::InlineText,
     caret: usize,
-) -> Option<(Range<usize>, Range<usize>, MarkKind)> {
+) -> Option<(Range<usize>, Range<usize>, MarkKind, bool)> {
     let text = inline.text();
     let prefix = text.get(..caret)?;
-    let (delim, kind) = if prefix.ends_with('`') {
-        ("`", MarkKind::Code)
-    } else if prefix.ends_with("~~") {
-        ("~~", MarkKind::Strikethrough)
-    } else if prefix.ends_with("**") {
-        ("**", MarkKind::Bold)
-    } else if prefix.ends_with('*') {
-        ("*", MarkKind::Italic)
-    } else {
-        return None;
-    };
-    let close = caret - delim.len()..caret;
-    let before = &prefix[..close.start];
-    let start = before.rfind(delim)?;
-    // `*` must not be half of a `**`.
-    if delim == "*" && (before[..start].ends_with('*') || before.ends_with('*')) {
-        return None;
-    }
-    let open = start..start + delim.len();
+    let (delim, kind) = typed_delimiter(prefix)?;
+    let typed = caret - delim.len()..caret;
+    let pair = closing_pair(text, typed.clone(), delim)
+        .map(|open| (open, typed.clone(), false))
+        .or_else(|| opening_pair(text, typed.clone(), delim).map(|close| (typed, close, true)))?;
+    let (open, close, typed_opening) = pair;
     let content = &text[open.end..close.start];
     if content.is_empty()
         || content.contains(super::inline::ATOM_CHAR)
@@ -2998,5 +2994,62 @@ fn mark_rule(
     let in_code = inline
         .pieces()
         .any(|(r, m, _)| m.code && r.start < close.end && r.end > open.start);
-    (!in_code).then_some((open, close, kind))
+    (!in_code).then_some((open, close, kind, typed_opening))
+}
+
+/// The delimiter ending `prefix` and its mark (longest first).
+fn typed_delimiter(prefix: &str) -> Option<(&'static str, MarkKind)> {
+    if prefix.ends_with('`') {
+        Some(("`", MarkKind::Code))
+    } else if prefix.ends_with("~~") {
+        Some(("~~", MarkKind::Strikethrough))
+    } else if prefix.ends_with("**") {
+        Some(("**", MarkKind::Bold))
+    } else if prefix.ends_with('*') {
+        Some(("*", MarkKind::Italic))
+    } else {
+        None
+    }
+}
+
+/// Forward order: the opening `delim` before the just-typed closing one.
+fn closing_pair(text: &str, close: Range<usize>, delim: &str) -> Option<Range<usize>> {
+    let before = &text[..close.start];
+    let start = before.rfind(delim)?;
+    // `*` must not be half of a `**`.
+    if delim == "*" && (before[..start].ends_with('*') || before.ends_with('*')) {
+        return None;
+    }
+    Some(start..start + delim.len())
+}
+
+/// Reverse order: `delim` was just typed in front of text that already ends
+/// with a matching closing `delim`. Both delimiters must sit on word edges
+/// (so `2*3` or `snake_case*` style punctuation inside words stays literal),
+/// neither may be escaped or half of a longer run of the same character, and
+/// the closing one is the nearest after the caret.
+fn opening_pair(text: &str, open: Range<usize>, delim: &str) -> Option<Range<usize>> {
+    let ch = delim.chars().next()?;
+    let before = &text[..open.start];
+    let after = &text[open.end..];
+    if before.ends_with(ch) || before.ends_with('\\') || after.starts_with(ch) {
+        return None;
+    }
+    if before
+        .chars()
+        .next_back()
+        .is_some_and(char::is_alphanumeric)
+    {
+        return None;
+    }
+    let rel = after.find(delim)?;
+    let close = open.end + rel..open.end + rel + delim.len();
+    let (inner, tail) = (&text[open.end..close.start], &text[close.end..]);
+    if inner.ends_with(ch) || inner.ends_with('\\') || tail.starts_with(ch) {
+        return None;
+    }
+    if tail.chars().next().is_some_and(char::is_alphanumeric) {
+        return None;
+    }
+    Some(close)
 }

@@ -4321,3 +4321,66 @@ fn table_corner_handle_is_separate_from_row_and_column_grips(cx: &mut TestAppCon
         Some(table)
     );
 }
+
+/// Richard (8 Nov 2026): type the closing delimiter first, move back, type
+/// the opening one. Word and phrase, every mark, Unicode, and undo.
+#[gpui::test]
+fn inline_mark_rules_fire_closing_first(cx: &mut TestAppContext) {
+    for (typed, back, delim, expected, plain) in [
+        ("a word`", 5, "`", "a `word`", "a word"),
+        ("a two words`", 10, "`", "a `two words`", "a two words"),
+        ("a café ünï*", 9, "*", "a *café ünï*", "a café ünï"),
+        ("a bold**", 6, "**", "a **bold**", "a bold"),
+        ("a gone~~", 6, "~~", "a ~~gone~~", "a gone"),
+    ] {
+        let (editor, cx) = open(cx, "");
+        type_chars(cx, typed);
+        assert_eq!(leaf_text(&editor, cx, 0), typed, "no early rule: {typed}");
+        keys(cx, &vec!["left"; back].join(" "));
+        type_chars(cx, delim);
+        assert_eq!(source(&editor, cx), expected, "{typed}");
+        assert_eq!(leaf_text(&editor, cx, 0), plain, "delimiters dropped");
+        // The caret stays in front of the span; typing there is unmarked.
+        type_text(cx, "z");
+        assert_eq!(
+            source(&editor, cx),
+            format!("a z{}", &expected[2..]),
+            "{typed}"
+        );
+        keys(cx, "M-z");
+        assert_eq!(source(&editor, cx), expected);
+        keys(cx, "M-z");
+        let restored = format!("a {delim}{}", &typed[2..]);
+        assert_eq!(
+            leaf_text(&editor, cx, 0),
+            restored,
+            "undo restores the delimiters"
+        );
+        keys(cx, "M-shift-z");
+        assert_eq!(source(&editor, cx), expected, "redo");
+    }
+}
+
+/// Closing-first stays literal where it should: inside words, escaped,
+/// unmatched, space-padded, in code, and half of a `**` run.
+#[gpui::test]
+fn closing_first_rules_leave_literal_punctuation(cx: &mut TestAppContext) {
+    for (src, offset, typed, want) in [
+        ("ab*", 1, "*", "a*b*"),       // opening inside a word
+        ("a b*c", 2, "*", "a *b*c"),   // closing inside a word
+        ("a \\b*", 3, "*", "a \\*b*"), // escaped opening (typed after `\`)
+        ("a b", 2, "*", "a *b"),       // nothing to close
+        ("a  b*", 2, "*", "a * b*"),   // space-padded content
+        ("a b**", 2, "*", "a *b**"),   // first star of a bold pair waits
+    ] {
+        let (editor, cx) = open(cx, "");
+        type_chars(cx, src);
+        caret_at(&editor, cx, 0, offset);
+        type_chars(cx, typed);
+        assert_eq!(leaf_text(&editor, cx, 0), want, "{src}");
+    }
+    let (editor, cx) = open(cx, "`a b*`");
+    caret_at(&editor, cx, 0, 2);
+    type_chars(cx, "*");
+    assert_eq!(source(&editor, cx), "`a *b*`", "inside inline code");
+}
