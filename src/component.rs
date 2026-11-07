@@ -21,6 +21,7 @@ pub struct BlockEditor {
     state: Entity<BlockEditorState>,
     min_rows: usize,
     max_rows: usize,
+    toolbar: bool,
 }
 impl BlockEditor {
     pub fn new(state: &Entity<BlockEditorState>) -> Self {
@@ -28,6 +29,7 @@ impl BlockEditor {
             state: state.clone(),
             min_rows: 2,
             max_rows: 16,
+            toolbar: false,
         }
     }
     /// Content-sized viewport clamped to content rows plus internal insets. The
@@ -38,13 +40,21 @@ impl BlockEditor {
         self.max_rows = max.max(self.min_rows);
         self
     }
+    /// Show the optional formatting toolbar above the content (off by
+    /// default; when off nothing is built). Users can still hide a shown
+    /// toolbar with the [`crate::ToggleToolbar`] action if the app binds it.
+    pub fn toolbar(mut self, toolbar: bool) -> Self {
+        self.toolbar = toolbar;
+        self
+    }
 }
 impl RenderOnce for BlockEditor {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let scroll = self.state.read(cx).scroll_handle();
         let min_height = rems(self.min_rows as f32 * ROW_HEIGHT + INPUT_PADDING_Y * 2.);
         let max_height = rems(self.max_rows as f32 * ROW_HEIGHT + INPUT_PADDING_Y * 2.);
-        div()
+        let toolbar = self.toolbar && !self.state.read(cx).is_toolbar_hidden();
+        let viewport = div()
             .id(("block-editor-viewport", self.state.entity_id()))
             .w_full()
             .min_w_0()
@@ -59,7 +69,24 @@ impl RenderOnce for BlockEditor {
                     .min_h(min_height)
                     .px(rems(INPUT_PADDING_X))
                     .py(rems(INPUT_PADDING_Y)),
+            );
+        if !toolbar {
+            return viewport.into_any_element();
+        }
+        div()
+            .w_full()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .px(rems(INPUT_PADDING_X / 2.))
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(crate::EditorToolbar::new(&self.state)),
             )
+            .child(viewport)
+            .into_any_element()
     }
 }
 
@@ -73,6 +100,99 @@ mod tests {
     };
 
     struct Harness(Entity<BlockEditorState>, f32);
+    struct ToolbarHarness(Entity<BlockEditorState>, bool);
+
+    impl Render for ToolbarHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .w(rems(30.))
+                .child(BlockEditor::new(&self.0).toolbar(self.1))
+        }
+    }
+
+    fn toolbar_window(
+        cx: &mut TestAppContext,
+        toolbar: bool,
+    ) -> (Entity<BlockEditorState>, &mut VisualTestContext) {
+        cx.update(crate::init_for_tests);
+        let (root, cx) = cx.add_window_view(|window, cx| {
+            ToolbarHarness(
+                cx.new(|cx| BlockEditorState::new(window, cx).with_source("alpha beta")),
+                toolbar,
+            )
+        });
+        let editor = root.read_with(cx, |root, _| root.0.clone());
+        draw(cx);
+        (editor, cx)
+    }
+
+    fn viewport_top(editor: &Entity<BlockEditorState>, cx: &mut VisualTestContext) -> Pixels {
+        editor.read_with(cx, |state, _| state.scroll_handle().unwrap().bounds().top())
+    }
+
+    #[gpui::test]
+    fn toolbar_is_omitted_unless_requested(cx: &mut TestAppContext) {
+        let (editor, cx) = toolbar_window(cx, false);
+        assert_eq!(viewport_top(&editor, cx), Pixels::ZERO);
+    }
+
+    #[gpui::test]
+    fn toolbar_sits_above_content_and_the_action_hides_it(cx: &mut TestAppContext) {
+        let (editor, cx) = toolbar_window(cx, true);
+        assert!(
+            viewport_top(&editor, cx) > Pixels::ZERO,
+            "toolbar row above"
+        );
+        cx.update(|window, cx| editor.update(cx, |state, cx| state.focus(window, cx)));
+        cx.dispatch_action(crate::ToggleToolbar);
+        draw(cx);
+        assert!(editor.read_with(cx, |state, _| state.is_toolbar_hidden()));
+        assert_eq!(viewport_top(&editor, cx), Pixels::ZERO);
+        cx.dispatch_action(crate::ToggleToolbar);
+        draw(cx);
+        assert!(viewport_top(&editor, cx) > Pixels::ZERO);
+    }
+
+    #[gpui::test]
+    fn toolbar_commands_keep_selection_and_return_focus(cx: &mut TestAppContext) {
+        let (editor, cx) = toolbar_window(cx, true);
+        editor.update(cx, |state, cx| {
+            let leaf = state.model().document().leaves().next().unwrap().id();
+            state
+                .set_selection(
+                    BlockSelection::Text {
+                        anchor: BlockPosition::new(leaf, 0),
+                        head: BlockPosition::new(leaf, 5),
+                    },
+                    cx,
+                )
+                .unwrap();
+        });
+        cx.update(|window, cx| {
+            crate::toolbar::run(
+                &editor,
+                crate::EditorCommand::ToggleMark(crate::MarkKind::Bold),
+                window,
+                cx,
+            );
+            crate::toolbar::run(
+                &editor,
+                crate::EditorCommand::SetBlockKind(crate::BlockKind::Heading { level: 2 }),
+                window,
+                cx,
+            );
+        });
+        draw(cx);
+        assert_eq!(
+            editor.read_with(cx, |state, _| state.source()),
+            "## **alpha** beta"
+        );
+        assert!(cx.update(|window, cx| editor.read(cx).focus_handle(cx).is_focused(window)));
+        assert_eq!(
+            crate::toolbar::style_label(editor.read_with(cx, |s, _| s.block_kind_at_caret())),
+            "Heading 2"
+        );
+    }
 
     impl Render for Harness {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {

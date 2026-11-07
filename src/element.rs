@@ -384,6 +384,7 @@ impl RenderOnce for BlockEditor {
             .on_action(window.listener_for(s, BlockEditorState::on_table_delete_line))
             .on_action(window.listener_for(s, BlockEditorState::on_close_table_menu))
             .on_action(window.listener_for(s, BlockEditorState::on_toggle_bold))
+            .on_action(window.listener_for(s, BlockEditorState::on_toggle_toolbar))
             .on_action(window.listener_for(s, BlockEditorState::on_toggle_italic))
             .on_action(window.listener_for(s, BlockEditorState::on_edit_link))
             .on_action(window.listener_for(s, BlockEditorState::on_toggle_code))

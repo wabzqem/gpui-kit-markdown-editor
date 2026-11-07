@@ -5,6 +5,14 @@ All notable changes to this crate are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Design decisions (D1-D22) are in
 [`docs/design.md`](docs/design.md).
 
+## [Unreleased]
+
+### Added
+- Optional formatting toolbar: `component::BlockEditor::toolbar(true)` or
+  `EditorToolbar`, with a paragraph-style dropdown, Bold / Italic / Inline code
+  toggles and an Insert menu. Off by default. The unbound `ToggleToolbar`
+  action and `BlockEditorState::set_toolbar_hidden` hide it.
+
 ## [0.1.3] - 2026-11-07
 
 ### Changed
