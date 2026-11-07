@@ -5,6 +5,30 @@ All notable changes to this crate are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Design decisions (D1-D22) are in
 [`docs/design.md`](docs/design.md).
 
+## [Unreleased]
+
+### Added
+- Optional formatting toolbar: `component::BlockEditor::toolbar(true)` or
+  `EditorToolbar`, with a paragraph-style dropdown, Bold / Italic / Inline code
+  toggles (Bold, Italic, Strikethrough, Inline code), a Quote toggle, list
+  indent / outdent buttons and an Insert menu (including Code block). Icons
+  are bundled Lucide SVGs (ISC). New `EditorCommand::ToggleBlockquote` and
+  `BlockEditorModel::{in_blockquote, can_indent, can_outdent}`. Off by default. The unbound `ToggleToolbar`
+  action and `BlockEditorState::set_toolbar_hidden` hide it.
+
+### Changed
+- Inline mark input rules (`code`, *italic*, **bold**, ~~strike~~) also fire
+  when the closing delimiter is typed first and the opening one is typed in
+  front of the text afterwards; the caret stays before the new span.
+- The whole-table select / drag handle is now a small square with a grid
+  glyph at the table's outer top-left corner, separate from the row and
+  column grips; a table's left edge no longer selects the whole table.
+
+### Fixed
+- `SetBlockKind(Paragraph | Heading)` (and Normal text, Cmd/Ctrl+Alt+0) now
+  turns a code block back into text, one block per line, instead of doing
+  nothing.
+
 ## [0.1.3] - 2026-11-07
 
 ### Changed

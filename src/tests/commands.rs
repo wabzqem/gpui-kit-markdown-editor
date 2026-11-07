@@ -272,6 +272,39 @@ fn set_code_block_converts_paragraph() {
 }
 
 #[test]
+fn code_block_converts_back_to_text_line_by_line() {
+    let mut m = model("```rust\nlet x = 1;\n\nlet y = 2;\n```");
+    caret_in(&mut m, 0, 14); // "y" on the third line
+    assert!(
+        m.run(EditorCommand::SetBlockKind(BlockKind::Paragraph))
+            .unwrap()
+    );
+    assert_eq!(m.source(), "let x = 1;\n\n\n\nlet y = 2;");
+    let caret = m.caret().unwrap();
+    assert_eq!(
+        m.document().block(caret.block).unwrap().text(),
+        Some("let y = 2;")
+    );
+    assert_eq!(caret.offset, 2);
+    assert!(m.undo());
+    assert_eq!(m.source(), "```rust\nlet x = 1;\n\nlet y = 2;\n```");
+}
+
+#[test]
+fn code_block_converts_to_heading_keeping_literal_text() {
+    let mut m = model("```\n**not bold**\n```");
+    caret_in(&mut m, 0, 0);
+    m.run(EditorCommand::SetBlockKind(BlockKind::Heading { level: 2 }))
+        .unwrap();
+    assert_eq!(
+        m.block_kind_at_caret(),
+        Some(BlockKind::Heading { level: 2 })
+    );
+    let leaf = m.document().leaves().next().unwrap();
+    assert_eq!(leaf.text(), Some("**not bold**"));
+}
+
+#[test]
 fn code_blocks_round_trip() {
     for source in [
         "```rust\nfn main() {\n    println!(\"hi\");\n}\n```",
@@ -776,4 +809,54 @@ fn move_block_to_refuses_nested_blocks() {
     let table = top(&m, 2);
     assert!(m.move_block_to(table, 0).unwrap());
     assert!(m.source().starts_with("| x |"));
+}
+
+#[test]
+fn toggle_blockquote_wraps_and_unwraps_in_place() {
+    let mut m = model("a\n\nbc\n\nd");
+    caret_in(&mut m, 1, 1);
+    assert!(!m.in_blockquote());
+    assert!(m.run(EditorCommand::ToggleBlockquote).unwrap());
+    assert_eq!(m.source(), "a\n\n> bc\n\nd");
+    assert!(m.in_blockquote());
+    assert_eq!(m.caret().unwrap().offset, 1);
+    assert!(m.run(EditorCommand::ToggleBlockquote).unwrap());
+    assert_eq!(m.source(), "a\n\nbc\n\nd");
+    assert_eq!(m.caret().unwrap().offset, 1);
+    assert!(m.undo());
+    assert_eq!(m.source(), "a\n\n> bc\n\nd");
+    assert!(m.undo());
+    assert_eq!(m.source(), "a\n\nbc\n\nd");
+}
+
+#[test]
+fn unquote_keeps_every_block_of_the_quote() {
+    let mut m = model("> one\n>\n> two");
+    caret_in(&mut m, 1, 0);
+    assert!(m.in_blockquote());
+    m.run(EditorCommand::ToggleBlockquote).unwrap();
+    assert_eq!(m.source(), "one\n\ntwo");
+}
+
+#[test]
+fn blockquote_is_refused_in_a_table_cell() {
+    let mut m = model("| x | y |\n| --- | --- |\n| 1 | 2 |");
+    caret_in(&mut m, 0, 0);
+    assert!(m.run(EditorCommand::ToggleBlockquote).is_err());
+    assert_eq!(m.source(), "| x | y |\n| --- | --- |\n| 1 | 2 |");
+}
+
+#[test]
+fn indent_feasibility_matches_the_commands() {
+    let mut m = model("- a\n- b\n  - c\n\npara");
+    caret_in(&mut m, 0, 0); // first item: nothing to nest under
+    assert!(!m.can_indent() && !m.can_outdent());
+    caret_in(&mut m, 1, 0); // second item: can nest under "a"
+    assert!(m.can_indent() && !m.can_outdent());
+    caret_in(&mut m, 2, 0); // nested first item
+    assert!(!m.can_indent() && m.can_outdent());
+    assert!(m.run(EditorCommand::Outdent).unwrap());
+    assert_eq!(m.source(), "- a\n- b\n- c\n\npara");
+    caret_in(&mut m, 3, 0); // a paragraph
+    assert!(!m.can_indent() && !m.can_outdent());
 }

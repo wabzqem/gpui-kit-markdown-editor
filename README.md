@@ -81,6 +81,36 @@ A themed, content-sized wrapper lives in `markdown_editor::component`.
 Images load by default. Use `ImagePolicy::Placeholder` to show a placeholder
 instead and never resolve URLs, decode data or read paths.
 
+## Optional toolbar
+
+The themed `component::BlockEditor` can show a compact formatting toolbar.
+It is off by default; when off, nothing is built, so the keyboard-only UI is
+unchanged.
+
+```rust
+use markdown_editor::{ToggleToolbar, component::BlockEditor};
+
+BlockEditor::new(&editor).toolbar(true);
+// Optional: let users hide/show it. Nothing is bound by default.
+cx.bind_keys([KeyBinding::new("cmd-shift-t", ToggleToolbar, Some("BlockEditor"))]);
+```
+
+It holds a fixed-width paragraph-style dropdown (Normal text, Heading 1-4),
+Bold / Italic / Strikethrough / Inline code toggles that show the state at the
+caret, a Quote toggle and list Decrease / Increase indent buttons (enabled only
+where Shift+Tab / Tab would act), and an Insert menu (Table, Code block, Horizontal rule, bulleted,
+numbered and task lists). Choosing a style inside a code block turns it back
+into text, one block per line. It is
+built from gpui-kit's `Toolbar`, ghost `Toggle`, and `Button` +
+`DropdownMenu`, so arrow keys move along it and menus keep their keyboard
+behaviour. Each command returns focus to the editor with the selection intact.
+To place it elsewhere (a title bar or pane header), render
+`markdown_editor::EditorToolbar::new(&editor)` yourself.
+`BlockEditorState::set_toolbar_hidden` / `is_toolbar_hidden` control visibility
+from code. Its icons are Lucide SVGs (ISC licence, `assets/icons/LICENSE-LUCIDE`)
+embedded in the crate with `Icon::data`, so no asset source is needed for
+them. Try it with `cargo run --example toolbar`.
+
 ## Features and keys
 
 Cargo features forward to gpui-kit's syntax highlighting for fenced code
@@ -109,8 +139,9 @@ shows a grip above the column and left of the row; clicking it selects that
 column / row and opens a menu (insert, delete, column alignment). Cmd/Ctrl-click a link emits `LinkClicked`; the editor never
 opens a browser.
 
-Drag to reorder (D22): drag a table or code block by its edge handle (the
-strip left of it; the pointer becomes an open hand) and a line shows where it
+Drag to reorder (D22): drag a table by the small square handle at its
+top-left corner, or a code block by the strip left of it (the pointer becomes
+an open hand), and a line shows where it
 will drop between top-level blocks. One undo step. Other blocks are not
 draggable.
 

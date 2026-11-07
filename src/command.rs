@@ -47,6 +47,10 @@ pub enum EditorCommand {
     EditTable(super::table::TableEdit),
     SelectAll,
     DeleteSelection,
+    /// Wrap the caret's paragraph, heading or code block in a blockquote,
+    /// or, when the caret is already in one, unwrap the nearest quote
+    /// (its blocks move out in place; nothing is lost).
+    ToggleBlockquote,
 }
 
 #[non_exhaustive]
@@ -1307,6 +1311,7 @@ impl BlockEditorModel {
             EditorCommand::Indent => self.indent(),
             EditorCommand::Outdent => self.outdent(),
             EditorCommand::SetCodeBlock { lang } => self.set_code_block(lang),
+            EditorCommand::ToggleBlockquote => self.toggle_blockquote(),
             EditorCommand::MoveBlocks { down } => self.move_blocks(down),
             EditorCommand::InsertBlock(BlockKind::HorizontalRule) => {
                 let pos = self
@@ -1372,6 +1377,14 @@ impl BlockEditorModel {
             }
             _ => return Err(CommandError::Unsupported("set_block_kind target")),
         };
+        if let Some(pos) = self.caret()
+            && matches!(
+                self.doc.kind(pos.block),
+                Some(BlockKindData::CodeBlock { .. })
+            )
+        {
+            return self.code_block_to_text(pos, data);
+        }
         let range = self.resolved()?;
         let blocks: Vec<BlockId> = self
             .text_ranges(range)
@@ -1389,6 +1402,43 @@ impl BlockEditorModel {
                 tx.set_kind(id, data.clone())?;
             }
             Ok(None)
+        })
+    }
+
+    /// Turn the caret's code block back into text blocks of `data`'s kind,
+    /// one per code line, so no content is lost; the caret keeps its line
+    /// and column. The text stays literal (no Markdown re-parse).
+    fn code_block_to_text(
+        &mut self,
+        pos: BlockPosition,
+        data: BlockKindData,
+    ) -> Result<bool, CommandError> {
+        let code = self.doc.plain(pos.block).unwrap_or_default().to_string();
+        self.transact(EditOrigin::Command("set_block_kind"), |tx| {
+            let (parent, index) = tx
+                .doc
+                .index_in_parent(pos.block)
+                .ok_or(PositionError::UnknownBlock(pos.block))?;
+            tx.remove_block(pos.block)?;
+            let mut start = 0;
+            let mut after = None;
+            let blocks: Vec<DetachedBlock> = code
+                .split('\n')
+                .map(|line| {
+                    let block = DetachedBlock::leaf(
+                        data.clone(),
+                        BlockContent::Inline(InlineText::plain(line, TextMark::default())),
+                    );
+                    let end = start + line.len();
+                    if after.is_none() && pos.offset <= end {
+                        after = Some(BlockPosition::new(block.id, pos.offset - start));
+                    }
+                    start = end + 1;
+                    block
+                })
+                .collect();
+            tx.insert(parent, index, blocks)?;
+            Ok(after.map(BlockSelection::caret))
         })
     }
 
@@ -1527,6 +1577,71 @@ impl BlockEditorModel {
             tx.insert(parent, index, vec![quote])?;
             Ok(None)
         })
+    }
+
+    /// Whether the caret is inside a blockquote.
+    pub fn in_blockquote(&self) -> bool {
+        self.caret_resolved()
+            .ok()
+            .and_then(|r| r.nearest(&self.doc, |k| matches!(k, BlockKindData::Blockquote)))
+            .is_some()
+    }
+
+    /// Whether [`EditorCommand::Indent`] would nest the caret's list item
+    /// (it needs a previous sibling item to nest under).
+    pub fn can_indent(&self) -> bool {
+        let Ok(resolved) = self.caret_resolved() else {
+            return false;
+        };
+        resolved
+            .nearest(&self.doc, is_list_item)
+            .and_then(|item| self.doc.index_in_parent(item))
+            .is_some_and(|(_, index)| index > 0)
+    }
+
+    /// Whether [`EditorCommand::Outdent`] would lift the caret's list item
+    /// one level (it must be nested inside another item).
+    pub fn can_outdent(&self) -> bool {
+        let Ok(resolved) = self.caret_resolved() else {
+            return false;
+        };
+        resolved
+            .nearest(&self.doc, is_list_item)
+            .and_then(|item| self.doc.index_in_parent(item))
+            .and_then(|(list, _)| self.doc.index_in_parent(list))
+            .is_some_and(|(outer, _)| self.doc.kind(outer).is_some_and(is_list_item))
+    }
+
+    fn toggle_blockquote(&mut self) -> Result<bool, CommandError> {
+        let resolved = self.caret_resolved()?;
+        let pos = resolved.pos;
+        if let Some(quote) = resolved.nearest(&self.doc, |k| matches!(k, BlockKindData::Blockquote))
+        {
+            let (outer, index) = self
+                .doc
+                .index_in_parent(quote)
+                .ok_or(PositionError::UnknownBlock(quote))?;
+            let count = self.doc.children(quote).len();
+            return self.transact(EditOrigin::Command("unquote"), |tx| {
+                let blocks = tx.remove(quote, 0..count)?;
+                tx.remove(outer, index..index + 1)?;
+                tx.insert(outer, index, blocks)?;
+                Ok(caret(pos))
+            });
+        }
+        if !matches!(
+            self.doc.kind(pos.block),
+            Some(
+                BlockKindData::Paragraph
+                    | BlockKindData::Heading { .. }
+                    | BlockKindData::CodeBlock { .. }
+            )
+        ) {
+            return Err(CommandError::Unsupported("blockquote here"));
+        }
+        self.wrap_in_blockquote()?;
+        let _ = self.set_selection(BlockSelection::caret(pos));
+        Ok(true)
     }
 
     fn indent(&mut self) -> Result<bool, CommandError> {

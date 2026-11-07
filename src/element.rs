@@ -384,6 +384,7 @@ impl RenderOnce for BlockEditor {
             .on_action(window.listener_for(s, BlockEditorState::on_table_delete_line))
             .on_action(window.listener_for(s, BlockEditorState::on_close_table_menu))
             .on_action(window.listener_for(s, BlockEditorState::on_toggle_bold))
+            .on_action(window.listener_for(s, BlockEditorState::on_toggle_toolbar))
             .on_action(window.listener_for(s, BlockEditorState::on_toggle_italic))
             .on_action(window.listener_for(s, BlockEditorState::on_edit_link))
             .on_action(window.listener_for(s, BlockEditorState::on_toggle_code))
@@ -609,6 +610,42 @@ impl Element for EditorRoot {
         let frame = state.frame.clone();
         let menu_line = state.table_menu.as_ref().map(|m| (m.table, m.line));
         let grips = state.table_grips_at(window.mouse_position());
+        // Whole-table corner handles to show: the hovered table's, and any
+        // node-selected table's. `true` when the pointer is on the handle.
+        let table_handles: Vec<(Bounds<Pixels>, bool)> = {
+            let mouse = window.mouse_position();
+            let on = state.table_handle_at(mouse);
+            let selected: Vec<BlockId> = state
+                .model
+                .selected_blocks()
+                .map(|(parent, range)| {
+                    state
+                        .model
+                        .doc
+                        .children(parent)
+                        .get(range)
+                        .unwrap_or_default()
+                        .to_vec()
+                })
+                .unwrap_or_default();
+            let frame = state.frame.borrow();
+            state
+                .table_handles()
+                .into_iter()
+                .filter(|(table, handle)| {
+                    selected.contains(table)
+                        || on == Some(*table)
+                        || frame.grids.iter().any(|g| {
+                            g.table == *table
+                                && g.bounds
+                                    .union(handle)
+                                    .dilate(px(TABLE_HOVER_REACH))
+                                    .contains(&mouse)
+                        })
+                })
+                .map(|(table, handle)| (handle, on == Some(table) || selected.contains(&table)))
+                .collect()
+        };
         // Node selection (a table, code block, …): the blocks' laid-out area.
         let selected_area = state.model.selected_blocks().and_then(|(parent, range)| {
             let doc = &state.model.doc;
@@ -638,17 +675,12 @@ impl Element for EditorRoot {
         // Block handle: a grip in the left edge of the hovered table or code
         // block; clicking the edge node-selects it (`block_handle_at`).
         let mouse = window.mouse_position();
+        // Tables use the corner handle below instead.
         let hovered = frame
-            .tables
+            .leaves
             .iter()
-            .map(|(_, b)| *b)
-            .chain(
-                frame
-                    .leaves
-                    .iter()
-                    .filter(|l| state_plain(&self.state, l.info.block, cx))
-                    .map(|l| l.bounds()),
-            )
+            .filter(|l| state_plain(&self.state, l.info.block, cx))
+            .map(|l| l.bounds())
             .find(|b| {
                 mouse.y >= b.top()
                     && mouse.y < b.bottom()
@@ -661,6 +693,28 @@ impl Element for EditorRoot {
                 size(px(4.), px(16.).min(b.size.height)),
             );
             window.paint_quad(fill(grip, style.caret().opacity(0.35)).corner_radii(px(2.)));
+        }
+        // Whole-table handle: a small rounded square with a 2x2 grid glyph
+        // at the frame's outer top-left corner, distinct from the thin
+        // row / column grips.
+        for (handle, active) in table_handles {
+            let alpha = if active { 0.9 } else { 0.45 };
+            window.paint_quad(gpui::quad(
+                handle,
+                px(3.),
+                style.selection().opacity(if active { 0.45 } else { 0.0 }),
+                px(1.),
+                style.caret().opacity(alpha),
+                gpui::BorderStyle::Solid,
+            ));
+            let dot = px(2.);
+            let c = handle.center();
+            for (dx, dy) in [(-2.5, -2.5), (0.5, -2.5), (-2.5, 0.5), (0.5, 0.5)] {
+                window.paint_quad(fill(
+                    Bounds::new(point(c.x + px(dx), c.y + px(dy)), size(dot, dot)),
+                    style.caret().opacity(alpha),
+                ));
+            }
         }
         // Table grips (D20): only for the hovered column / row, or the
         // line whose menu is open.
@@ -797,6 +851,9 @@ impl Element for EditorRoot {
         });
     }
 }
+
+/// Pointer reach around a table where its corner handle shows.
+const TABLE_HOVER_REACH: f32 = 28.;
 
 fn state_plain(state: &Entity<BlockEditorState>, block: BlockId, cx: &App) -> bool {
     state.read(cx).model.doc.plain(block).is_some()

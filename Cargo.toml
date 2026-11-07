@@ -10,6 +10,7 @@ keywords = ["gpui", "markdown", "editor", "wysiwyg"]
 categories = ["gui", "text-editors"]
 include = [
     "/src",
+    "/assets/icons",
     "/examples",
     "/tests/fixtures",
     "/docs/*.md",
