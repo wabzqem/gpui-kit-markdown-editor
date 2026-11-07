@@ -272,6 +272,39 @@ fn set_code_block_converts_paragraph() {
 }
 
 #[test]
+fn code_block_converts_back_to_text_line_by_line() {
+    let mut m = model("```rust\nlet x = 1;\n\nlet y = 2;\n```");
+    caret_in(&mut m, 0, 14); // "y" on the third line
+    assert!(
+        m.run(EditorCommand::SetBlockKind(BlockKind::Paragraph))
+            .unwrap()
+    );
+    assert_eq!(m.source(), "let x = 1;\n\n\n\nlet y = 2;");
+    let caret = m.caret().unwrap();
+    assert_eq!(
+        m.document().block(caret.block).unwrap().text(),
+        Some("let y = 2;")
+    );
+    assert_eq!(caret.offset, 2);
+    assert!(m.undo());
+    assert_eq!(m.source(), "```rust\nlet x = 1;\n\nlet y = 2;\n```");
+}
+
+#[test]
+fn code_block_converts_to_heading_keeping_literal_text() {
+    let mut m = model("```\n**not bold**\n```");
+    caret_in(&mut m, 0, 0);
+    m.run(EditorCommand::SetBlockKind(BlockKind::Heading { level: 2 }))
+        .unwrap();
+    assert_eq!(
+        m.block_kind_at_caret(),
+        Some(BlockKind::Heading { level: 2 })
+    );
+    let leaf = m.document().leaves().next().unwrap();
+    assert_eq!(leaf.text(), Some("**not bold**"));
+}
+
+#[test]
 fn code_blocks_round_trip() {
     for source in [
         "```rust\nfn main() {\n    println!(\"hi\");\n}\n```",

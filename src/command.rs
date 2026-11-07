@@ -1372,6 +1372,14 @@ impl BlockEditorModel {
             }
             _ => return Err(CommandError::Unsupported("set_block_kind target")),
         };
+        if let Some(pos) = self.caret()
+            && matches!(
+                self.doc.kind(pos.block),
+                Some(BlockKindData::CodeBlock { .. })
+            )
+        {
+            return self.code_block_to_text(pos, data);
+        }
         let range = self.resolved()?;
         let blocks: Vec<BlockId> = self
             .text_ranges(range)
@@ -1389,6 +1397,43 @@ impl BlockEditorModel {
                 tx.set_kind(id, data.clone())?;
             }
             Ok(None)
+        })
+    }
+
+    /// Turn the caret's code block back into text blocks of `data`'s kind,
+    /// one per code line, so no content is lost; the caret keeps its line
+    /// and column. The text stays literal (no Markdown re-parse).
+    fn code_block_to_text(
+        &mut self,
+        pos: BlockPosition,
+        data: BlockKindData,
+    ) -> Result<bool, CommandError> {
+        let code = self.doc.plain(pos.block).unwrap_or_default().to_string();
+        self.transact(EditOrigin::Command("set_block_kind"), |tx| {
+            let (parent, index) = tx
+                .doc
+                .index_in_parent(pos.block)
+                .ok_or(PositionError::UnknownBlock(pos.block))?;
+            tx.remove_block(pos.block)?;
+            let mut start = 0;
+            let mut after = None;
+            let blocks: Vec<DetachedBlock> = code
+                .split('\n')
+                .map(|line| {
+                    let block = DetachedBlock::leaf(
+                        data.clone(),
+                        BlockContent::Inline(InlineText::plain(line, TextMark::default())),
+                    );
+                    let end = start + line.len();
+                    if after.is_none() && pos.offset <= end {
+                        after = Some(BlockPosition::new(block.id, pos.offset - start));
+                    }
+                    start = end + 1;
+                    block
+                })
+                .collect();
+            tx.insert(parent, index, blocks)?;
+            Ok(after.map(BlockSelection::caret))
         })
     }
 

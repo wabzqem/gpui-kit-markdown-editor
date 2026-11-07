@@ -10,8 +10,14 @@ All notable changes to this crate are documented here. The format follows
 ### Added
 - Optional formatting toolbar: `component::BlockEditor::toolbar(true)` or
   `EditorToolbar`, with a paragraph-style dropdown, Bold / Italic / Inline code
-  toggles and an Insert menu. Off by default. The unbound `ToggleToolbar`
+  toggles (Bold, Italic, Strikethrough, Inline code) and an Insert menu
+  (including Code block). Off by default. The unbound `ToggleToolbar`
   action and `BlockEditorState::set_toolbar_hidden` hide it.
+
+### Fixed
+- `SetBlockKind(Paragraph | Heading)` (and Normal text, Cmd/Ctrl+Alt+0) now
+  turns a code block back into text, one block per line, instead of doing
+  nothing.
 
 ## [0.1.3] - 2026-11-07
 

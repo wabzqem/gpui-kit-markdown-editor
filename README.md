@@ -95,9 +95,11 @@ BlockEditor::new(&editor).toolbar(true);
 cx.bind_keys([KeyBinding::new("cmd-shift-t", ToggleToolbar, Some("BlockEditor"))]);
 ```
 
-It holds a paragraph-style dropdown (Normal text, Heading 1-4, Code block),
-Bold / Italic / Inline code toggles that show the state at the caret, and an
-Insert menu (Table, Horizontal rule, bulleted, numbered and task lists). It is
+It holds a fixed-width paragraph-style dropdown (Normal text, Heading 1-4),
+Bold / Italic / Strikethrough / Inline code toggles that show the state at the
+caret, and an Insert menu (Table, Code block, Horizontal rule, bulleted,
+numbered and task lists). Choosing a style inside a code block turns it back
+into text, one block per line. It is
 built from gpui-kit's `Toolbar`, ghost `Toggle`, and `Button` +
 `DropdownMenu`, so arrow keys move along it and menus keep their keyboard
 behaviour. Each command returns focus to the editor with the selection intact.

@@ -5,7 +5,9 @@
 //! ghost `Button` + `DropdownMenu` triggers for paragraph style and insertion.
 //! Every control routes through [`BlockEditorState::run`] and hands focus back
 //! to the editor, so the caret and selection survive a pointer click.
-use gpui::{App, Entity, FontWeight, IntoElement, ParentElement, RenderOnce, Styled, Window, div};
+use gpui::{
+    App, Entity, FontWeight, IntoElement, ParentElement, RenderOnce, Styled, Window, div, rems,
+};
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Sizable as _,
     button::{Button, ButtonVariants as _, Toggle, ToggleVariants as _},
@@ -15,6 +17,9 @@ use gpui_kit::component::{
 };
 
 use crate::{BlockEditorState, BlockKind, EditorCommand, MarkKind, MarkState};
+
+/// Style trigger width in rems: the longest label plus caret and padding.
+const STYLE_TRIGGER_WIDTH: f32 = 7.5;
 
 /// Paragraph styles offered by the style dropdown, in menu order.
 const STYLES: &[(&str, BlockKind)] = &[
@@ -90,9 +95,10 @@ impl RenderOnce for EditorToolbar {
         let kind = model.block_kind_at_caret();
         let in_text = kind.is_some();
         let mark_on = |mark| model.mark_state(mark) == MarkState::On;
-        let (bold, italic, code) = (
+        let (bold, italic, strike, code) = (
             mark_on(MarkKind::Bold),
             mark_on(MarkKind::Italic),
+            mark_on(MarkKind::Strikethrough),
             mark_on(MarkKind::Code),
         );
         let in_code_block = kind == Some(BlockKind::CodeBlock);
@@ -104,6 +110,9 @@ impl RenderOnce for EditorToolbar {
             .small()
             .label(style_label(kind))
             .dropdown_caret(true)
+            // Fixed width (fits "Normal text" / "Heading 6" + caret) so
+            // changing style never shifts the rest of the bar.
+            .w(rems(STYLE_TRIGGER_WIDTH))
             .tooltip("Paragraph style")
             .disabled(readonly || !in_text)
             .dropdown_menu(move |mut menu, _, _| {
@@ -118,19 +127,7 @@ impl RenderOnce for EditorToolbar {
                             }),
                     );
                 }
-                let state = state.clone();
-                menu.separator().item(
-                    PopupMenuItem::new("Code block")
-                        .checked(in_code_block)
-                        .on_click(move |_, window, cx| {
-                            let command = if in_code_block {
-                                EditorCommand::SetBlockKind(BlockKind::Paragraph)
-                            } else {
-                                EditorCommand::SetCodeBlock { lang: None }
-                            };
-                            run(&state, command, window, cx)
-                        }),
-                )
+                menu
             });
 
         let mark = |name: &'static str, tip: String, mark: MarkKind, on: bool, glyph| {
@@ -160,6 +157,13 @@ impl RenderOnce for EditorToolbar {
             italic,
             div().italic().child("I"),
         );
+        let strike = mark(
+            "md-toolbar-strike",
+            "Strikethrough".into(),
+            MarkKind::Strikethrough,
+            strike,
+            div().line_through().child("S"),
+        );
         let code = mark(
             "md-toolbar-code",
             format!("Inline code ({})", shortcut("e")),
@@ -187,6 +191,10 @@ impl RenderOnce for EditorToolbar {
                     EditorCommand::InsertTable { rows: 3, cols: 3 },
                 ))
                 .item(item(
+                    "Code block",
+                    EditorCommand::SetCodeBlock { lang: None },
+                ))
+                .item(item(
                     "Horizontal rule",
                     EditorCommand::InsertBlock(BlockKind::HorizontalRule),
                 ))
@@ -207,6 +215,7 @@ impl RenderOnce for EditorToolbar {
             .content(Separator::vertical().h_4())
             .child(bold)
             .child(italic)
+            .child(strike)
             .child(code)
             .content(Separator::vertical().h_4())
             .content(insert)

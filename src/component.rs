@@ -187,6 +187,20 @@ mod tests {
             editor.read_with(cx, |state, _| state.source()),
             "## **alpha** beta"
         );
+        cx.update(|window, cx| {
+            crate::toolbar::run(
+                &editor,
+                crate::EditorCommand::ToggleMark(crate::MarkKind::Strikethrough),
+                window,
+                cx,
+            );
+        });
+        assert_eq!(
+            editor.read_with(cx, |s, _| s
+                .model()
+                .mark_state(crate::MarkKind::Strikethrough)),
+            crate::MarkState::On
+        );
         assert!(cx.update(|window, cx| editor.read(cx).focus_handle(cx).is_focused(window)));
         assert_eq!(
             crate::toolbar::style_label(editor.read_with(cx, |s, _| s.block_kind_at_caret())),
