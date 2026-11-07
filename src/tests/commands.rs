@@ -810,3 +810,53 @@ fn move_block_to_refuses_nested_blocks() {
     assert!(m.move_block_to(table, 0).unwrap());
     assert!(m.source().starts_with("| x |"));
 }
+
+#[test]
+fn toggle_blockquote_wraps_and_unwraps_in_place() {
+    let mut m = model("a\n\nbc\n\nd");
+    caret_in(&mut m, 1, 1);
+    assert!(!m.in_blockquote());
+    assert!(m.run(EditorCommand::ToggleBlockquote).unwrap());
+    assert_eq!(m.source(), "a\n\n> bc\n\nd");
+    assert!(m.in_blockquote());
+    assert_eq!(m.caret().unwrap().offset, 1);
+    assert!(m.run(EditorCommand::ToggleBlockquote).unwrap());
+    assert_eq!(m.source(), "a\n\nbc\n\nd");
+    assert_eq!(m.caret().unwrap().offset, 1);
+    assert!(m.undo());
+    assert_eq!(m.source(), "a\n\n> bc\n\nd");
+    assert!(m.undo());
+    assert_eq!(m.source(), "a\n\nbc\n\nd");
+}
+
+#[test]
+fn unquote_keeps_every_block_of_the_quote() {
+    let mut m = model("> one\n>\n> two");
+    caret_in(&mut m, 1, 0);
+    assert!(m.in_blockquote());
+    m.run(EditorCommand::ToggleBlockquote).unwrap();
+    assert_eq!(m.source(), "one\n\ntwo");
+}
+
+#[test]
+fn blockquote_is_refused_in_a_table_cell() {
+    let mut m = model("| x | y |\n| --- | --- |\n| 1 | 2 |");
+    caret_in(&mut m, 0, 0);
+    assert!(m.run(EditorCommand::ToggleBlockquote).is_err());
+    assert_eq!(m.source(), "| x | y |\n| --- | --- |\n| 1 | 2 |");
+}
+
+#[test]
+fn indent_feasibility_matches_the_commands() {
+    let mut m = model("- a\n- b\n  - c\n\npara");
+    caret_in(&mut m, 0, 0); // first item: nothing to nest under
+    assert!(!m.can_indent() && !m.can_outdent());
+    caret_in(&mut m, 1, 0); // second item: can nest under "a"
+    assert!(m.can_indent() && !m.can_outdent());
+    caret_in(&mut m, 2, 0); // nested first item
+    assert!(!m.can_indent() && m.can_outdent());
+    assert!(m.run(EditorCommand::Outdent).unwrap());
+    assert_eq!(m.source(), "- a\n- b\n- c\n\npara");
+    caret_in(&mut m, 3, 0); // a paragraph
+    assert!(!m.can_indent() && !m.can_outdent());
+}

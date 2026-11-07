@@ -97,7 +97,8 @@ cx.bind_keys([KeyBinding::new("cmd-shift-t", ToggleToolbar, Some("BlockEditor"))
 
 It holds a fixed-width paragraph-style dropdown (Normal text, Heading 1-4),
 Bold / Italic / Strikethrough / Inline code toggles that show the state at the
-caret, and an Insert menu (Table, Code block, Horizontal rule, bulleted,
+caret, a Quote toggle and list Decrease / Increase indent buttons (enabled only
+where Shift+Tab / Tab would act), and an Insert menu (Table, Code block, Horizontal rule, bulleted,
 numbered and task lists). Choosing a style inside a code block turns it back
 into text, one block per line. It is
 built from gpui-kit's `Toolbar`, ghost `Toggle`, and `Button` +
@@ -106,7 +107,9 @@ behaviour. Each command returns focus to the editor with the selection intact.
 To place it elsewhere (a title bar or pane header), render
 `markdown_editor::EditorToolbar::new(&editor)` yourself.
 `BlockEditorState::set_toolbar_hidden` / `is_toolbar_hidden` control visibility
-from code. Try it with `cargo run --example toolbar`.
+from code. Its icons are Lucide SVGs (ISC licence, `assets/icons/LICENSE-LUCIDE`)
+embedded in the crate with `Icon::data`, so no asset source is needed for
+them. Try it with `cargo run --example toolbar`.
 
 ## Features and keys
 

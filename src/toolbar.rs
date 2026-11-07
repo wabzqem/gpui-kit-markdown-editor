@@ -5,11 +5,9 @@
 //! ghost `Button` + `DropdownMenu` triggers for paragraph style and insertion.
 //! Every control routes through [`BlockEditorState::run`] and hands focus back
 //! to the editor, so the caret and selection survive a pointer click.
-use gpui::{
-    App, Entity, FontWeight, IntoElement, ParentElement, RenderOnce, Styled, Window, div, rems,
-};
+use gpui::{App, Entity, IntoElement, RenderOnce, Styled, Window, div, rems};
 use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, Sizable as _,
+    Disableable as _, Icon, Sizable as _,
     button::{Button, ButtonVariants as _, Toggle, ToggleVariants as _},
     menu::{DropdownMenu as _, PopupMenuItem},
     separator::Separator,
@@ -17,6 +15,32 @@ use gpui_kit::component::{
 };
 
 use crate::{BlockEditorState, BlockKind, EditorCommand, MarkKind, MarkState};
+
+// Lucide icons (ISC, see assets/icons/LICENSE-LUCIDE), copied from the
+// gpui-kit-assets 0.9 catalog and embedded as bytes (`Icon::data`) so apps
+// need no asset-source wiring for the toolbar.
+const ICON_BOLD: &[u8] = include_bytes!("../assets/icons/bold.svg");
+const ICON_ITALIC: &[u8] = include_bytes!("../assets/icons/italic.svg");
+const ICON_STRIKETHROUGH: &[u8] = include_bytes!("../assets/icons/strikethrough.svg");
+const ICON_CODE: &[u8] = include_bytes!("../assets/icons/code.svg");
+const ICON_QUOTE: &[u8] = include_bytes!("../assets/icons/text-quote.svg");
+const ICON_INDENT: &[u8] = include_bytes!("../assets/icons/list-indent-increase.svg");
+const ICON_OUTDENT: &[u8] = include_bytes!("../assets/icons/list-indent-decrease.svg");
+
+fn icon(svg: &[u8]) -> Icon {
+    Icon::default().data(svg)
+}
+
+/// Whether the caret is in a table cell (quotes wrap whole blocks, not cells).
+fn in_table_cell(model: &crate::BlockEditorModel) -> bool {
+    model.caret().is_some_and(|c| {
+        model
+            .document()
+            .block(c.block)
+            .and_then(|b| b.parent())
+            .is_some_and(|p| p.kind() == BlockKind::TableRow)
+    })
+}
 
 /// Style trigger width in rems: the longest label plus caret and padding.
 const STYLE_TRIGGER_WIDTH: f32 = 7.5;
@@ -102,6 +126,9 @@ impl RenderOnce for EditorToolbar {
             mark_on(MarkKind::Code),
         );
         let in_code_block = kind == Some(BlockKind::CodeBlock);
+        let in_quote = model.in_blockquote();
+        let quotable = in_text && !in_table_cell(model);
+        let (can_indent, can_outdent) = (model.can_indent(), model.can_outdent());
         let marks_disabled = readonly || !in_text || in_code_block;
 
         let state = self.state.clone();
@@ -130,46 +157,86 @@ impl RenderOnce for EditorToolbar {
                 menu
             });
 
-        let mark = |name: &'static str, tip: String, mark: MarkKind, on: bool, glyph| {
+        let mark = |name: &'static str, tip: String, mark: MarkKind, on: bool, svg: &[u8]| {
             let state = self.state.clone();
             Toggle::new((name, id))
                 .ghost()
                 .checked(on)
                 .tooltip(tip)
                 .disabled(marks_disabled)
-                .child(glyph)
+                .icon(icon(svg))
                 .on_click(move |_, window, cx| {
                     run(&state, EditorCommand::ToggleMark(mark), window, cx)
                 })
         };
-        let mono = cx.theme().mono_font_family.clone();
         let bold = mark(
             "md-toolbar-bold",
             format!("Bold ({})", shortcut("b")),
             MarkKind::Bold,
             bold,
-            div().font_weight(FontWeight::BOLD).child("B"),
+            ICON_BOLD,
         );
         let italic = mark(
             "md-toolbar-italic",
             format!("Italic ({})", shortcut("i")),
             MarkKind::Italic,
             italic,
-            div().italic().child("I"),
+            ICON_ITALIC,
         );
         let strike = mark(
             "md-toolbar-strike",
             "Strikethrough".into(),
             MarkKind::Strikethrough,
             strike,
-            div().line_through().child("S"),
+            ICON_STRIKETHROUGH,
         );
         let code = mark(
             "md-toolbar-code",
             format!("Inline code ({})", shortcut("e")),
             MarkKind::Code,
             code,
-            div().font_family(mono).child("</>"),
+            ICON_CODE,
+        );
+
+        // Block structure: quote toggle, then list outdent / indent. Always
+        // shown (disabled when they would do nothing) so the bar never
+        // reflows as the caret moves.
+        let state = self.state.clone();
+        let quote = Toggle::new(("md-toolbar-quote", id))
+            .ghost()
+            .checked(in_quote)
+            .tooltip("Quote")
+            .disabled(readonly || !(in_quote || quotable))
+            .icon(icon(ICON_QUOTE))
+            .on_click(move |_, window, cx| {
+                run(&state, EditorCommand::ToggleBlockquote, window, cx)
+            });
+        let step = |name: &'static str,
+                    tip: &'static str,
+                    svg: &[u8],
+                    enabled: bool,
+                    command: EditorCommand| {
+            let state = self.state.clone();
+            Button::new((name, id))
+                .ghost()
+                .icon(icon(svg))
+                .tooltip(tip)
+                .disabled(readonly || !enabled)
+                .on_click(move |_, window, cx| run(&state, command.clone(), window, cx))
+        };
+        let outdent = step(
+            "md-toolbar-outdent",
+            "Decrease list indent (Shift+Tab)",
+            ICON_OUTDENT,
+            can_outdent,
+            EditorCommand::Outdent,
+        );
+        let indent = step(
+            "md-toolbar-indent",
+            "Increase list indent (Tab)",
+            ICON_INDENT,
+            can_indent,
+            EditorCommand::Indent,
         );
 
         let state = self.state.clone();
@@ -217,6 +284,10 @@ impl RenderOnce for EditorToolbar {
             .child(italic)
             .child(strike)
             .child(code)
+            .content(Separator::vertical().h_4())
+            .child(quote)
+            .child(outdent)
+            .child(indent)
             .content(Separator::vertical().h_4())
             .content(insert)
             .into_any_element()

@@ -2700,6 +2700,7 @@ fn command_name(command: &EditorCommand) -> &'static str {
         EditorCommand::SetBlockKind(_) => "set_block_kind",
         EditorCommand::ToggleList { .. } => "toggle_list",
         EditorCommand::ToggleTask => "toggle_task",
+        EditorCommand::ToggleBlockquote => "toggle_blockquote",
         EditorCommand::SetTaskChecked(_) => "set_task_checked",
         EditorCommand::Indent => "indent",
         EditorCommand::Outdent => "outdent",

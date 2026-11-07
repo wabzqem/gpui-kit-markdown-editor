@@ -201,6 +201,13 @@ mod tests {
                 .mark_state(crate::MarkKind::Strikethrough)),
             crate::MarkState::On
         );
+        cx.update(|window, cx| {
+            crate::toolbar::run(&editor, crate::EditorCommand::ToggleBlockquote, window, cx);
+        });
+        draw(cx);
+        assert!(editor.read_with(cx, |s, _| s.model().in_blockquote()));
+        assert!(editor.read_with(cx, |s, _| s.source()).starts_with("> ## "));
+        assert!(cx.update(|window, cx| editor.read(cx).focus_handle(cx).is_focused(window)));
         assert!(cx.update(|window, cx| editor.read(cx).focus_handle(cx).is_focused(window)));
         assert_eq!(
             crate::toolbar::style_label(editor.read_with(cx, |s, _| s.block_kind_at_caret())),

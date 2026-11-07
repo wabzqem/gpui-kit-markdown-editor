@@ -10,8 +10,10 @@ All notable changes to this crate are documented here. The format follows
 ### Added
 - Optional formatting toolbar: `component::BlockEditor::toolbar(true)` or
   `EditorToolbar`, with a paragraph-style dropdown, Bold / Italic / Inline code
-  toggles (Bold, Italic, Strikethrough, Inline code) and an Insert menu
-  (including Code block). Off by default. The unbound `ToggleToolbar`
+  toggles (Bold, Italic, Strikethrough, Inline code), a Quote toggle, list
+  indent / outdent buttons and an Insert menu (including Code block). Icons
+  are bundled Lucide SVGs (ISC). New `EditorCommand::ToggleBlockquote` and
+  `BlockEditorModel::{in_blockquote, can_indent, can_outdent}`. Off by default. The unbound `ToggleToolbar`
   action and `BlockEditorState::set_toolbar_hidden` hide it.
 
 ### Changed
