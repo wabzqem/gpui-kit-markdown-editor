@@ -8,7 +8,7 @@ links, and bold/italic/strike/inline-code marks. It has cross-block selection,
 IME, undo/redo, input rules (`# `, `- `, ```` ``` ````), copy/paste as Markdown,
 and culling of off-screen blocks.
 
-<img width="826" height="418" alt="image" src="https://github.com/user-attachments/assets/27ca3783-93b6-4acb-a17e-8a111606d44b" />
+<img width="880" height="846" alt="image" src="https://github.com/user-attachments/assets/6ad93024-a81e-4df3-b2b4-df141f915dca" />
 
 
 ## Usage
@@ -160,11 +160,6 @@ step (separate from plain Backspace/Delete); a line delete is its own.
 
 ## Known limitations
 
-- Copying across blocks writes Markdown and pastes back as blocks (headings,
-  lists, quotes, code, tables, tasks, marks). A table the selection touches is
-  copied whole, and a selection starting inside a nested list lifts the nested
-  items out instead of copying an empty parent item. Pasting a list directly
-  after another list joins them.
 - Empty paragraphs have no Markdown form and disappear on save; list
   tightness can change once on the first save, after which output is stable.
 - A `BlockEditor` is as tall as its text. Give it `min_h_full()` (and padding
@@ -176,10 +171,6 @@ step (separate from plain Backspace/Delete); a line delete is its own.
   and long tables are laid out in full.
 - No `source_offset` mapping, no pluggable input-rule registry, and events
   carry no change summaries yet.
-- Developed and tested on Linux (under a virtual display). macOS and Windows
-  key bindings and IME are implemented but unverified here.
-- Bold text only looks bold if the theme font has a bold face (the same as
-  gpui-kit's own `TextView`).
 
 ## Build and run
 
