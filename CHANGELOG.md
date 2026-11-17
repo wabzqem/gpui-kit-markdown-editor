@@ -5,6 +5,24 @@ All notable changes to this crate are documented here. The format follows
 [Semantic Versioning](https://semver.org/). Design decisions (D1-D22) are in
 [`docs/design.md`](docs/design.md).
 
+## [Unreleased]
+
+### Changed
+- **Breaking:** require gpui-kit 0.10 (was 0.9) for normal use and test
+  support. gpui-kit 0.x minor releases are semver-incompatible, so apps must
+  upgrade gpui-kit to 0.10 together with this release; the editor's own
+  public API is unchanged.
+- Runs of spaces in loaded Markdown text fold to one space, following
+  gpui-kit 0.10's parser, which now folds white space the way HTML draws it
+  (longbridge/gpui-kit#3949). Inline code keeps its spaces. Spaces typed in
+  the editor are kept until the document is reloaded from Markdown.
+
+### Fixed
+- Carets, clicks, column grips and hover in centred and right-aligned table
+  columns follow gpui-kit 0.10's new aligned-cell layout (the cell's content
+  box is aligned rather than its text), including columns whose cells are all
+  empty.
+
 ## [0.2.0] - 2026-11-08
 
 ### Added

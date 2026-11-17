@@ -34,13 +34,13 @@ syntect = ["gpui-kit/syntect"]
 tree-sitter = ["gpui-kit/tree-sitter", "gpui-kit/tree-sitter-languages"]
 
 [dependencies]
-gpui-kit = "0.9"
+gpui-kit = "0.10"
 markdown = "1.0.0"
 unicode-segmentation = "1.12.0"
 
 [dev-dependencies]
 anyhow = "1"
-gpui-kit = { version = "0.9", features = ["test-support"] }
+gpui-kit = { version = "0.10", features = ["test-support"] }
 
 [[example]]
 name = "story"

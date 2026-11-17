@@ -12,6 +12,14 @@ fn round_trip(source: &str) -> String {
     model(source).source()
 }
 
+/// gpui-kit 0.10 folds runs of spaces in Markdown text the way HTML draws
+/// them (longbridge/gpui-kit#3949); inline code keeps its spaces.
+#[test]
+fn space_runs_fold_on_import_except_in_code() {
+    assert_eq!(round_trip("a  b.  C"), "a b. C");
+    assert_eq!(round_trip("a `x  y` b"), "a `x  y` b");
+}
+
 #[test]
 fn bold_italic_round_trips() {
     assert_eq!(round_trip("a ***x*** b"), "a ***x*** b");
