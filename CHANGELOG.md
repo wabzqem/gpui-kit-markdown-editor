@@ -7,6 +7,8 @@ All notable changes to this crate are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-17
+
 ### Changed
 - **Breaking:** require gpui-kit 0.10 (was 0.9) for normal use and test
   support. gpui-kit 0.x minor releases are semver-incompatible, so apps must
