@@ -46,41 +46,14 @@ pub(crate) fn into_frame(
 pub(crate) struct LeafGeom {
     pub(crate) info: LeafInfo,
     geometry: LeafGeometry,
-    /// A table cell's column alignment. gpui-kit paints centred and
-    /// right-aligned cell text shifted inside the text element, but
-    /// `LeafGeometry` positions are unshifted; `row_shift` puts it back.
+    /// A table cell's column alignment. Since gpui-kit 0.10 an aligned
+    /// cell's text element is itself placed (centred / right) inside the
+    /// cell, so `LeafGeometry` positions are where the text is painted and
+    /// need no correction; the alignment only feeds `layout_tables`.
     pub(crate) align: ColumnAlign,
 }
 
 impl LeafGeom {
-    /// How far the row at `y` (an unshifted line top) is painted right of
-    /// where `LeafGeometry` reports it, for an aligned table cell.
-    fn row_shift(&self, y: Pixels) -> Pixels {
-        if matches!(self.align, ColumnAlign::None | ColumnAlign::Left) {
-            return px(0.);
-        }
-        let len = self.geometry.len();
-        let b = self.bounds();
-        let (mut lo, mut hi) = (None::<Pixels>, None::<Pixels>);
-        for i in 0..=len {
-            let p = self.geometry.position_for_index(i);
-            if (p.y - y).abs() < px(0.5) {
-                lo = Some(lo.map_or(p.x, |v: Pixels| v.min(p.x)));
-                hi = Some(hi.map_or(p.x, |v: Pixels| v.max(p.x)));
-            }
-        }
-        let (Some(lo), Some(hi)) = (lo, hi) else {
-            return px(0.);
-        };
-        let free = (b.right() - lo) - (hi - lo);
-        let free = free.max(px(0.));
-        match self.align {
-            ColumnAlign::Center => free / 2.,
-            ColumnAlign::Right => free,
-            _ => px(0.),
-        }
-    }
-
     pub(crate) fn bounds(&self) -> Bounds<Pixels> {
         self.geometry.bounds()
     }
@@ -107,20 +80,11 @@ impl LeafGeom {
 
     /// Top of the caret at `offset`, window coordinates.
     pub(crate) fn caret_point(&self, offset: usize) -> Point<Pixels> {
-        let mut p = self.geometry.position_for_index(self.index(offset));
-        p.x += self.row_shift(p.y);
-        p
+        self.geometry.position_for_index(self.index(offset))
     }
 
     /// Closest model offset for a window point.
     pub(crate) fn offset_at(&self, at: Point<Pixels>) -> usize {
-        let mut at = at;
-        if !matches!(self.align, ColumnAlign::None | ColumnAlign::Left) {
-            // The row under `at`, then undo its alignment shift.
-            let row = self.geometry.index_for_position(at);
-            let y = self.geometry.position_for_index(row).y;
-            at.x -= self.row_shift(y);
-        }
         let index = self.geometry.index_for_position(at);
         if self.info.atomic {
             usize::from(index * 2 > self.geometry.len().max(1))
@@ -333,10 +297,15 @@ impl FrameLayout {
     /// `[lead slack][cell: px_3 + text + px_3][trail slack + divider]`, the
     /// slack split by the column alignment (Left: after, Centre: both
     /// sides, Right: before) and sized in proportion to the cell width.
-    /// The text element of a cell is the cell's content box, so its left
-    /// edge plus the alignment's slack share gives the column edge; the
-    /// one unknown, slack per pixel of cell, comes from the gaps between
-    /// neighbouring cells. Also records each cell's alignment.
+    /// In a Left / None column the text element of every cell is the
+    /// cell's content box. In a Centre / Right column (gpui-kit 0.10+) each
+    /// text element shrinks to its text and is placed inside the content
+    /// box, so the column's widest text element stands for the box: it is
+    /// either at the column's natural width (which sizes the box) or wraps
+    /// and fills it. Its left edge plus the alignment's slack share gives
+    /// the column edge; the one unknown, slack per pixel of cell, comes
+    /// from the gaps between neighbouring cells. Also records each cell's
+    /// alignment.
     pub(crate) fn layout_tables(
         &mut self,
         shapes: &[TableShape],
@@ -355,16 +324,16 @@ impl FrameLayout {
                 }
             }
             let cols = shape.grid.iter().map(Vec::len).max().unwrap_or(0);
-            // Each column's text element (left, width): all cells of a
-            // column share it.
+            // Each column's content box (left, width): its widest text
+            // element (see above).
             let mut elems: Vec<Option<(Pixels, Pixels)>> = vec![None; cols];
             for row in &shape.grid {
                 for (c, cell) in row.iter().enumerate() {
-                    if elems[c].is_none()
-                        && let Some(leaf) = self.leaf(*cell)
-                    {
+                    if let Some(leaf) = self.leaf(*cell) {
                         let b = leaf.bounds();
-                        elems[c] = Some((b.left(), b.size.width));
+                        if elems[c].is_none_or(|(_, w)| b.size.width > w) {
+                            elems[c] = Some((b.left(), b.size.width));
+                        }
                     }
                 }
             }
@@ -403,7 +372,7 @@ impl FrameLayout {
                 }
             }
             let k = k.unwrap_or(0.);
-            let col_spans: Vec<(Pixels, Pixels)> = (0..cols)
+            let mut col_spans: Vec<(Pixels, Pixels)> = (0..cols)
                 .map(|c| {
                     let (lead, trail) = share(c);
                     let slack = cell_w(c) * k;
@@ -413,6 +382,17 @@ impl FrameLayout {
                     (left, right)
                 })
                 .collect();
+            // A column whose cells are all empty or short and aligned has no
+            // text element as wide as its box; meet its neighbours halfway so
+            // the columns still tile the table.
+            for c in 0..cols.saturating_sub(1) {
+                let (right, next_left) = (col_spans[c].1, col_spans[c + 1].0);
+                if (right - next_left).abs() > px(0.5) {
+                    let mid = (right + next_left) / 2.;
+                    col_spans[c].1 = mid;
+                    col_spans[c + 1].0 = mid;
+                }
+            }
             let pad_y = px(CELL_PAD_Y);
             let row_spans: Vec<(Pixels, Pixels)> = shape
                 .grid

@@ -3645,24 +3645,38 @@ fn cell_carets(
 #[gpui::test]
 fn d20_caret_x_follows_cell_alignment(cx: &mut TestAppContext) {
     let (editor, cx) = open(cx, ALIGNED);
+    let cell_box = |ix: usize| {
+        editor.read_with(cx, |e, _| {
+            let f = e.frame.borrow();
+            let id = f.leaves[ix].info.block;
+            f.cell_boxes.get(&id).copied().expect("cell box")
+        })
+    };
     // Row 1: a (Left), "centred text" (Centre), 42 (Right), plain (None).
-    let (b, x0, x1) = cell_carets(&editor, cx, 4);
+    let (b, x0, _) = cell_carets(&editor, cx, 4);
     assert_eq!(x0, b.left(), "left");
-    let (b, x0, x1c) = cell_carets(&editor, cx, 5);
-    let w = x1c - x0;
+    // Centre: the text sits in the middle of its cell (the cell box also
+    // holds the 1px column rule on its right).
+    let (_, x0, x1c) = cell_carets(&editor, cx, 5);
+    let cell = cell_box(5);
     assert!(
-        (x0 - (b.left() + (b.size.width - w) / 2.)).abs() < px(0.6),
-        "centre"
+        ((x0 + x1c) / 2. - (cell.left() + cell.right()) / 2.).abs() < px(1.),
+        "centre: text {x0:?}..{x1c:?} in cell {cell:?}"
     );
+    // Right: the text ends at its element's right edge, against the cell's
+    // right side, with the slack on its left.
     let (b, x0, x1r) = cell_carets(&editor, cx, 6);
     assert!(
         (x1r - b.right()).abs() < px(0.6),
         "right end at the right edge"
     );
-    assert!(x0 > b.left(), "right start shifted");
+    let cell = cell_box(6);
+    assert!(
+        x0 - cell.left() > cell.right() - x1r,
+        "right start shifted: text {x0:?}..{x1r:?} in cell {cell:?}"
+    );
     let (b, x0n, _) = cell_carets(&editor, cx, 7);
     assert_eq!(x0n, b.left(), "none");
-    let _ = x1;
 }
 
 #[gpui::test]
@@ -3767,6 +3781,10 @@ fn d20_grips_and_hits_match_cells_for_aligned_uneven_wrapped_tables(cx: &mut Tes
         "| a | b | c |\n| :---: | :---: | :---: |\n| 1 | 22 | 333 |",
     );
     assert_grips_match_cells(&editor, cx, "all centred");
+    // gpui-kit 0.10 shrinks aligned cell text to its width: a centred
+    // column of empty cells still tiles between its neighbours.
+    let (editor2, cx2) = open(cx, "| a | | c |\n| --- | :---: | ---: |\n| one | | 3 |");
+    assert_grips_match_cells(&editor2, cx2, "empty centred column");
     // After inserting and deleting columns the grid follows.
     caret_at(&editor, cx, 3, 0);
     keys(cx, "M-alt-right");

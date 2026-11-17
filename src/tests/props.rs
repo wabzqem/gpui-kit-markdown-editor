@@ -93,9 +93,14 @@ fn walk(b: BlockRef<'_>, m: &BlockEditorModel, depth: usize) -> String {
             // Per character; whitespace ignores marks, because hoisting moves
             // edge whitespace out of a mark group, and Markdown drops leading
             // and trailing whitespace of a paragraph (canonicalization).
-            let mut tokens = Vec::new();
+            // Outside inline code a run of spaces is one token: gpui-kit
+            // 0.10's parser folds such runs the way HTML draws them.
+            let mut tokens: Vec<Option<String>> = Vec::new();
             for (range, marks, _) in inline.pieces() {
                 for ch in inline.text()[range].chars() {
+                    if ch.is_whitespace() && !marks.code && matches!(tokens.last(), Some(None)) {
+                        continue;
+                    }
                     tokens.push((!ch.is_whitespace()).then(|| {
                         format!(
                             " {ch:?}{}{}{}{}{}",

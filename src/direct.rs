@@ -165,6 +165,8 @@ impl NodeCache {
                 children: children(self),
                 spread: *spread,
                 checked: *checked,
+                // Task toggles are the editor's own; no source marker span.
+                task_marker: None,
                 span: None,
             },
             BlockKindData::CodeBlock { lang, meta } => {

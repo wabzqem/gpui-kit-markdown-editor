@@ -17,7 +17,7 @@ use gpui_kit::component::{
 use crate::{BlockEditorState, BlockKind, EditorCommand, MarkKind, MarkState};
 
 // Lucide icons (ISC, see assets/icons/LICENSE-LUCIDE), copied from the
-// gpui-kit-assets 0.9 catalog and embedded as bytes (`Icon::data`) so apps
+// gpui-kit-assets catalog (unchanged in 0.10) and embedded as bytes (`Icon::data`) so apps
 // need no asset-source wiring for the toolbar.
 const ICON_BOLD: &[u8] = include_bytes!("../assets/icons/bold.svg");
 const ICON_ITALIC: &[u8] = include_bytes!("../assets/icons/italic.svg");
