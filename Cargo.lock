@@ -2692,6 +2692,7 @@ dependencies = [
  "gpui-component",
  "gpui-fast",
  "gpui-fast-platform",
+ "gpui-fast-web",
  "gpui-kit-assets",
  "gpui-pre",
  "gpui-pre-macros",
@@ -2706,6 +2707,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "655474e0a0069db561d7d4029f84de59e41c0f1afff2301b23e00329968d3148"
 dependencies = [
  "anyhow",
+ "gpui-fast",
  "gpui-pre",
  "gpui-pre-reqwest",
  "log",
@@ -2716,7 +2718,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-kit-markdown-editor"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "gpui-kit",

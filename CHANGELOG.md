@@ -7,6 +7,22 @@ All notable changes to this crate are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-18
+
+### Added
+- `gpui-fast` feature for apps that build gpui-kit 0.10 on GPUI Fast
+  (`gpui-kit/gpui-fast`). It enables gpui-kit's `gpui-fast` and drops the
+  editor's own `IntoElement` impls, which GPUI Fast provides for every
+  element. Without it the editor failed to compile with E0119 (conflicting
+  implementations of `IntoElement`). Enabling `gpui-fast` on gpui-kit but
+  not on the editor now fails with an error naming the missing feature.
+
+### Fixed
+- Block culling starts after the first frame on GPUI Fast. That frame lays
+  out every block; the editor now asks for a follow-up frame instead of
+  relying on upstream GPUI re-rendering each frame, which GPUI Fast does not
+  do for an unchanged window.
+
 ## [0.3.0] - 2026-11-17
 
 ### Changed

@@ -45,10 +45,16 @@ fn open<'a>(
     (editor, cx)
 }
 
+/// One frame of a real frame loop: draw, then deliver the next-frame callbacks
+/// the frame scheduled. Upstream GPUI re-renders the whole window on every
+/// draw, but GPUI Fast reuses unchanged frames, so the editor's follow-up
+/// frames (culling after a scroll, a reveal after rewrapping) only happen
+/// once those callbacks run.
 fn draw(cx: &mut VisualTestContext) {
     cx.run_until_parked();
     cx.update(|window, cx| {
         let _ = window.draw(cx);
+        window.simulate_next_frame(cx);
     });
 }
 
