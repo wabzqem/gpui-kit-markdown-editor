@@ -15,6 +15,9 @@ jobs:
       fail-fast: false
       matrix:
         dependencies: [locked, latest]
+        backend: [upstream, gpui-fast]
+    env:
+      FEATURES: ${{ matrix.backend == 'gpui-fast' && '--features gpui-fast' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -33,8 +36,8 @@ jobs:
         if: matrix.dependencies == 'latest'
         run: cargo update -p gpui-kit
       - name: clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets $FEATURES -- -D warnings
       - name: tests (under a virtual display)
-        run: xvfb-run -a cargo test --locked --all-targets
-      - name: build the example
-        run: cargo build --locked --example story
+        run: xvfb-run -a cargo test --locked --all-targets $FEATURES
+      - name: build the examples
+        run: cargo build --locked --examples $FEATURES

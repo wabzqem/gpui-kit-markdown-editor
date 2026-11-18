@@ -123,6 +123,19 @@ blocks; gpui-kit only highlights when one is on:
 
 Disable default features to build without highlighting.
 
+If your app builds gpui-kit on GPUI Fast (`gpui-kit/gpui-fast`), enable the
+editor's `gpui-fast` feature as well; it turns on gpui-kit's for you:
+
+```toml
+gpui-kit = { version = "0.10", features = ["gpui-fast"] }
+gpui-kit-markdown-editor = { version = "0.3.1", features = ["gpui-fast"] }
+```
+
+The editor defines its own GPUI elements, and the two engines need different
+trait impls for them, so it has to be told which one it is built against. If
+gpui-kit has `gpui-fast` and the editor does not, the build stops with an
+error asking you to turn it on.
+
 Keys (Cmd instead of Ctrl on macOS): Enter, Backspace/Delete, arrows,
 Home/End, Ctrl+Home/End (document start/end), Shift to select, Ctrl+A,
 Ctrl+B/I/E (bold, italic, code), Ctrl+K (edit link), Ctrl+Alt+0 (normal

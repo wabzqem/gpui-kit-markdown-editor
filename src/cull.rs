@@ -239,7 +239,15 @@ impl CullState {
         }
         let top = (mask.top() - editor.top()).max(px(0.));
         let bottom = (mask.bottom() - editor.top()).min(editor.size.height);
+        // A frame laid out without a visible span rendered every block; ask
+        // for a culled one. Upstream GPUI re-renders each frame anyway, but
+        // GPUI Fast reuses an unchanged frame, so without this culling would
+        // not start until something else invalidated the editor.
+        let unculled = self.visible.is_none();
         self.visible = Some((top, bottom.max(top)));
+        if unculled && !measured.is_empty() {
+            return true;
+        }
         match (self.rendered_span, measured.first(), measured.last()) {
             (_, Some(first), Some(last)) => {
                 let span = (first.2 - editor.top(), last.3 - editor.top());
@@ -258,6 +266,9 @@ pub(crate) struct Measured {
     pub(crate) child: Option<AnyElement>,
 }
 
+// GPUI Fast implements `IntoElement` for every `Element`; upstream GPUI
+// needs it spelled out.
+#[cfg(not(feature = "gpui-fast"))]
 impl IntoElement for Measured {
     type Element = Self;
     fn into_element(self) -> Self {
