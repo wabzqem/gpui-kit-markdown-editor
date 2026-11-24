@@ -7,6 +7,20 @@ All notable changes to this crate are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-25
+
+### Changed
+- **Breaking:** require gpui-kit 0.11 (was 0.10) for normal use and test
+  support. Apps must upgrade gpui-kit to 0.11 together with this release;
+  the editor's own public API is unchanged.
+- The editor's `gpui-fast` feature still enables `gpui-kit/gpui-fast`, but is
+  no longer required when that feature is already enabled on gpui-kit.
+
+### Fixed
+- In paragraphs with inline code, closing punctuation and following spaces
+  stay with a word or code span that fills the line instead of wrapping
+  onto the next line (longbridge/gpui-kit#4087).
+
 ## [0.3.1] - 2026-11-18
 
 ### Added

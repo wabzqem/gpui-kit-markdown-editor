@@ -1,6 +1,6 @@
 [package]
 name = "gpui-kit-markdown-editor"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 description = "A block-based WYSIWYG Markdown editor for GPUI, built on gpui-kit's editor host API."
 license = "Apache-2.0"
@@ -32,20 +32,17 @@ default = ["syntect"]
 # syntax tree and takes precedence when both are enabled.
 syntect = ["gpui-kit/syntect"]
 tree-sitter = ["gpui-kit/tree-sitter", "gpui-kit/tree-sitter-languages"]
-# Build on GPUI Fast instead of upstream GPUI. Enable this whenever your app
-# enables `gpui-kit/gpui-fast`: the editor defines its own GPUI elements, and
-# the two engines need different trait impls for them, so the editor has to
-# know which one it is compiled against.
+# Forward to gpui-kit to select GPUI Fast instead of upstream GPUI.
 gpui-fast = ["gpui-kit/gpui-fast"]
 
 [dependencies]
-gpui-kit = "0.10"
+gpui-kit = "0.11"
 markdown = "1.0.0"
 unicode-segmentation = "1.12.0"
 
 [dev-dependencies]
 anyhow = "1"
-gpui-kit = { version = "0.10", features = ["test-support"] }
+gpui-kit = { version = "0.11", features = ["test-support"] }
 
 [[example]]
 name = "story"
