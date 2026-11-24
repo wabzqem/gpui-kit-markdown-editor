@@ -266,16 +266,6 @@ pub(crate) struct Measured {
     pub(crate) child: Option<AnyElement>,
 }
 
-// GPUI Fast implements `IntoElement` for every `Element`; upstream GPUI
-// needs it spelled out.
-#[cfg(not(feature = "gpui-fast"))]
-impl IntoElement for Measured {
-    type Element = Self;
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
 impl Element for Measured {
     type RequestLayoutState = AnyElement;
     type PrepaintState = ();

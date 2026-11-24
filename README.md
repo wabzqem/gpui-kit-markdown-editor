@@ -15,8 +15,8 @@ and culling of off-screen blocks.
 
 ```toml
 [dependencies]
-gpui-kit = "0.10"
-gpui-kit-markdown-editor = { git = "https://github.com/wabzqem/gpui-kit-markdown-editor" }
+gpui-kit = "0.11"
+gpui-kit-markdown-editor = "0.4.0"
 ```
 
 The library is imported as `markdown_editor`. The editor uses GPUI through
@@ -123,18 +123,17 @@ blocks; gpui-kit only highlights when one is on:
 
 Disable default features to build without highlighting.
 
-If your app builds gpui-kit on GPUI Fast (`gpui-kit/gpui-fast`), enable the
-editor's `gpui-fast` feature as well; it turns on gpui-kit's for you:
+To select GPUI Fast, the editor's `gpui-fast` feature forwards to
+`gpui-kit/gpui-fast`:
 
 ```toml
-gpui-kit = { version = "0.10", features = ["gpui-fast"] }
-gpui-kit-markdown-editor = { version = "0.3.1", features = ["gpui-fast"] }
+[dependencies]
+gpui-kit = "0.11"
+gpui-kit-markdown-editor = { version = "0.4.0", features = ["gpui-fast"] }
 ```
 
-The editor defines its own GPUI elements, and the two engines need different
-trait impls for them, so it has to be told which one it is built against. If
-gpui-kit has `gpui-fast` and the editor does not, the build stops with an
-error asking you to turn it on.
+If your app already enables `gpui-fast` on gpui-kit, you can leave the
+editor's feature off. The editor uses whichever GPUI backend gpui-kit selects.
 
 Keys (Cmd instead of Ctrl on macOS): Enter, Backspace/Delete, arrows,
 Home/End, Ctrl+Home/End (document start/end), Shift to select, Ctrl+A,

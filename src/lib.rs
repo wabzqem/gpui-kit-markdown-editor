@@ -73,13 +73,6 @@ mod table_ui;
 mod transaction;
 mod undo;
 
-// The editor's own elements need different trait impls on each engine, so its
-// `gpui-fast` feature has to match the one gpui-kit was built with.
-const _: () = assert!(
-    gpui_kit::GPUI_FAST == cfg!(feature = "gpui-fast"),
-    "gpui-kit is built with `gpui-fast`: enable the `gpui-fast` feature on gpui-kit-markdown-editor too"
-);
-
 #[cfg(test)]
 mod tests;
 
