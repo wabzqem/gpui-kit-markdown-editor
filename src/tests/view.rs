@@ -2314,6 +2314,68 @@ fn host_semantic_paste_intercepts_keyboard_and_native_action_once(cx: &mut TestA
 }
 
 #[gpui::test]
+fn host_image_source_resolves_paragraphs_and_tables_but_not_placeholders(cx: &mut TestAppContext) {
+    use crate::{ImagePolicy, element::ImageResolver};
+    use std::sync::{Arc, Mutex};
+
+    struct ImageRoot(Entity<BlockEditorState>, ImageResolver, bool);
+    impl Render for ImageRoot {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let resolver = self.1.clone();
+            let editor = if self.2 {
+                crate::component::BlockEditor::new(&self.0)
+                    .image_source(move |uri| resolver(uri))
+                    .into_any_element()
+            } else {
+                BlockEditor::new(&self.0)
+                    .image_source(move |uri| resolver(uri))
+                    .into_any_element()
+            };
+            div().w(px(600.)).child(editor)
+        }
+    }
+
+    const SOURCE: &str = "ab![pic](book://chapter/pic.avif)cd\n\n| image |\n| --- |\n| ![cell](book://chapter/cell.avif) |";
+    cx.update(crate::init_for_tests);
+    for themed in [false, true] {
+        let uris = Arc::new(Mutex::new(Vec::new()));
+        let seen = uris.clone();
+        let image = gpui_kit::base::test_support::sized_image_source(96, 40);
+        let (root, visual) = cx.add_window_view(move |window, cx| {
+            ImageRoot(
+                cx.new(|cx| BlockEditorState::new(window, cx).with_source(SOURCE)),
+                Arc::new(move |uri| {
+                    seen.lock().unwrap().push(uri.to_string());
+                    image(uri)
+                }),
+                themed,
+            )
+        });
+        let editor = root.read_with(visual, |root, _| root.0.clone());
+        draw(visual);
+        let seen = std::mem::take(&mut *uris.lock().unwrap());
+        assert!(seen.iter().any(|uri| uri == "book://chapter/pic.avif"));
+        assert!(seen.iter().any(|uri| uri == "book://chapter/cell.avif"));
+        let width = editor.read_with(visual, |state, _| {
+            let id = state.model().document().leaves().next().unwrap().id();
+            let frame = state.frame.borrow();
+            let leaf = frame.leaf(id).unwrap();
+            leaf.caret_point(5).x - leaf.caret_point(2).x
+        });
+        assert!(
+            width >= px(90.),
+            "expected resolved intrinsic width, got {width:?}"
+        );
+
+        editor.update(visual, |state, cx| {
+            state.set_image_policy(ImagePolicy::Placeholder, cx)
+        });
+        draw(visual);
+        assert!(uris.lock().unwrap().is_empty());
+        assert_eq!(source(&editor, visual), SOURCE);
+    }
+}
+#[gpui::test]
 fn host_image_placeholder_load_and_paste_never_issue_http(cx: &mut TestAppContext) {
     use crate::ImagePolicy;
     use std::sync::{
