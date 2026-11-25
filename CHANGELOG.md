@@ -7,6 +7,15 @@ All notable changes to this crate are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-25
+
+### Added
+- An opt-in `image_source` builder on both base and themed `BlockEditor`
+  lets hosts resolve chapter-relative or app-managed image URIs. Without an
+  override, the editor uses the default loader; `ImagePolicy::Placeholder`
+  is unchanged and bypasses the resolver
+  ([#7](https://github.com/wabzqem/gpui-kit-markdown-editor/issues/7)).
+
 ## [0.4.0] - 2026-11-25
 
 ### Changed
