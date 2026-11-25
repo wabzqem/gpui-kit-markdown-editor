@@ -8,15 +8,16 @@
 //! then paints the caret and the composition underline from that geometry.
 //! Paint never updates the editor entity.
 
-use std::{cell::Cell, collections::HashMap, ops::Range, rc::Rc};
+use std::{cell::Cell, collections::HashMap, ops::Range, rc::Rc, sync::Arc};
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, App, Bounds, CursorStyle, DefiniteLength, DispatchPhase, Edges, Element, ElementId,
-    ElementInputHandler, Entity, GlobalElementId, Hitbox, HitboxBehavior, Hsla, InspectorElementId,
-    InteractiveElement, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, Pixels, Refineable, RenderOnce, Role, StatefulInteractiveElement,
-    Style, StyleRefinement, Styled, TextStyle, Window, canvas, div, fill, point, px, size,
+    ElementInputHandler, Entity, GlobalElementId, Hitbox, HitboxBehavior, Hsla, ImageSource,
+    InspectorElementId, InteractiveElement, IntoElement, LayoutId, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Refineable, RenderOnce, Role, SharedUri,
+    StatefulInteractiveElement, Style, StyleRefinement, Styled, TextStyle, Window, canvas, div,
+    fill, point, px, size,
 };
 
 use super::{cull::Measured, id::BlockId, projection::Snapshot, state::*, style::BlockEditorStyle};
@@ -29,6 +30,8 @@ use gpui_kit::base::text::editor_host::{
 /// Items per cull unit of a long top-level list.
 const LIST_CHUNK: usize = 32;
 
+pub(crate) type ImageResolver = Arc<dyn Fn(&SharedUri) -> ImageSource + Send + Sync>;
+
 /// A block-based WYSIWYG Markdown editor (spike). Hold an
 /// `Entity<BlockEditorState>` and pass it here in `render`. Instance styling
 /// applies to the native input root; it installs no padding or height defaults.
@@ -36,6 +39,7 @@ const LIST_CHUNK: usize = 32;
 pub struct BlockEditor {
     state: Entity<BlockEditorState>,
     style: StyleRefinement,
+    pub(crate) image_source: Option<ImageResolver>,
 }
 
 impl BlockEditor {
@@ -43,7 +47,22 @@ impl BlockEditor {
         Self {
             state: state.clone(),
             style: StyleRefinement::default(),
+            image_source: None,
         }
+    }
+
+    /// Overrides the source of document images for rendering and measurement.
+    /// The resolver may be called repeatedly and must return promptly; the host
+    /// owns URI policy and caching. The returned source replaces the original
+    /// URL even if loading is pending or fails. [`crate::ImagePolicy::Placeholder`]
+    /// bypasses the resolver entirely. Without a resolver, GPUI Kit's built-in
+    /// loader is used in `Load` mode.
+    pub fn image_source<F>(mut self, resolver: F) -> Self
+    where
+        F: Fn(&SharedUri) -> ImageSource + Send + Sync + 'static,
+    {
+        self.image_source = Some(Arc::new(resolver));
+        self
     }
 }
 
@@ -83,6 +102,12 @@ impl RenderOnce for BlockEditor {
         // Links are followed by the editor itself (Cmd/Ctrl-click); the shared
         // renderer must never open a URL on its own.
         let render_cx = RenderContext::from_app(cx).on_link_click(|_, _, _, _| {});
+        let render_cx = match (self.state.read(cx).image_policy(), self.image_source) {
+            (crate::ImagePolicy::Load, Some(resolve)) => {
+                render_cx.with_image_source(move |uri| resolve(uri))
+            }
+            _ => render_cx,
+        };
         let text_style = render_cx.style().clone();
         let mut style = self.state.read(cx).style.resolved(&theme.tokens);
         if style.selection_is_default() {

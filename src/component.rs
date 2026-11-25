@@ -1,14 +1,16 @@
 //! Themed, content-sized Markdown editor. Base retains all editing behavior.
+use crate::element::ImageResolver;
 pub use crate::{
     BlockEditorEvent, BlockEditorState, CapturedRange, CapturedRangeError, ClipboardPolicy,
     ImagePolicy, PasteRequest, SourceSnapshot, SubmitPolicy,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, Entity, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    StatefulInteractiveElement, Styled, Window, div, rems,
+    App, Entity, ImageSource, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    SharedUri, StatefulInteractiveElement, Styled, Window, div, rems,
 };
 use gpui_kit::component::ActiveTheme;
+use std::sync::Arc;
 
 // Medium input-family proportions (10px/8px at the default 16px rem),
 // expressed on the same relative axis as the editor's content rows.
@@ -22,6 +24,7 @@ pub struct BlockEditor {
     min_rows: usize,
     max_rows: usize,
     toolbar: bool,
+    image_source: Option<ImageResolver>,
 }
 impl BlockEditor {
     pub fn new(state: &Entity<BlockEditorState>) -> Self {
@@ -30,8 +33,18 @@ impl BlockEditor {
             min_rows: 2,
             max_rows: 16,
             toolbar: false,
+            image_source: None,
         }
     }
+    /// Overrides document image sources. See [`crate::BlockEditor::image_source`].
+    pub fn image_source<F>(mut self, resolver: F) -> Self
+    where
+        F: Fn(&SharedUri) -> ImageSource + Send + Sync + 'static,
+    {
+        self.image_source = Some(Arc::new(resolver));
+        self
+    }
+
     /// Content-sized viewport clamped to content rows plus internal insets. The
     /// editor's retained handle owns scrolling and caret reveal; no outer
     /// scrolling node or application height mirror is needed.
@@ -54,6 +67,8 @@ impl RenderOnce for BlockEditor {
         let min_height = rems(self.min_rows as f32 * ROW_HEIGHT + INPUT_PADDING_Y * 2.);
         let max_height = rems(self.max_rows as f32 * ROW_HEIGHT + INPUT_PADDING_Y * 2.);
         let toolbar = self.toolbar && !self.state.read(cx).is_toolbar_hidden();
+        let mut editor = crate::BlockEditor::new(&self.state);
+        editor.image_source = self.image_source;
         let viewport = div()
             .id(("block-editor-viewport", self.state.entity_id()))
             .w_full()
@@ -65,7 +80,7 @@ impl RenderOnce for BlockEditor {
             .text_color(cx.theme().foreground)
             // Padding belongs to the native root, inside the sole scroll owner.
             .child(
-                crate::BlockEditor::new(&self.state)
+                editor
                     .min_h(min_height)
                     .px(rems(INPUT_PADDING_X))
                     .py(rems(INPUT_PADDING_Y)),
